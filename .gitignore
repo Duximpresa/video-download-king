@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+build/
+dist/
+release/
+*.spec
+config/settings.json
+config/settings.json.corrupt-*
+runtime/ffmpeg/
+runtime/deno/
