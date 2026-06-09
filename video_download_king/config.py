@@ -19,6 +19,12 @@ class AppSettings:
     cookie_file: str = ""
     cookie_browser: str = ""
     timeout: int = 30
+    output_mode: str = "video_audio"
+    filename_template: str = "{title} [{id}]"
+    download_thumbnail: bool = False
+    download_subtitles: bool = False
+    embed_thumbnail: bool = False
+    subtitle_languages: str = "zh-Hans,zh.*,en.*"
     transcode: TranscodeConfig = field(default_factory=TranscodeConfig)
 
     @property
@@ -36,6 +42,10 @@ class SettingsStore:
             return AppSettings()
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
+            mode = data.get("output_mode", "video_audio")
+            if mode == "video":
+                mode = "video_audio"
+            transcode_data = data.get("transcode", {})
             return AppSettings(
                 save_path=data.get("save_path", "downloads"),
                 classify_by_platform=bool(data.get("classify_by_platform", True)),
@@ -43,7 +53,15 @@ class SettingsStore:
                 cookie_file=data.get("cookie_file", ""),
                 cookie_browser=data.get("cookie_browser", ""),
                 timeout=int(data.get("timeout", 30)),
-                transcode=TranscodeConfig(**data.get("transcode", {})),
+                output_mode=mode,
+                filename_template=data.get("filename_template", "{title} [{id}]"),
+                download_thumbnail=bool(data.get("download_thumbnail", False)),
+                download_subtitles=bool(data.get("download_subtitles", False)),
+                embed_thumbnail=bool(data.get("embed_thumbnail", False)),
+                subtitle_languages=data.get("subtitle_languages", "zh-Hans,zh.*,en.*"),
+                transcode=TranscodeConfig(
+                    **{key: value for key, value in transcode_data.items() if key in TranscodeConfig.__dataclass_fields__}
+                ),
             )
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -58,4 +76,3 @@ class SettingsStore:
         tmp = self.path.with_suffix(".tmp")
         tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         tmp.replace(self.path)
-

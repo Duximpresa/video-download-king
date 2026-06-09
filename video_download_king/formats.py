@@ -37,6 +37,15 @@ def format_selector(request: DownloadRequest) -> str:
         return request.video_format_id
     if request.mode == "audio":
         return "bestaudio/best"
+    if request.mode == "video_only":
+        if request.quality_preset == "best":
+            return "bestvideo"
+        if request.quality_preset == "worst":
+            return "worstvideo"
+        height = request.custom_height if request.quality_preset == "custom" else PRESET_HEIGHTS.get(request.quality_preset)
+        if height:
+            return f"bestvideo[height<=?{height}]/worstvideo"
+        raise ValueError("未知画质预设")
     if request.quality_preset == "best":
         return "bestvideo*+bestaudio/best"
     if request.quality_preset == "worst":
@@ -48,4 +57,3 @@ def format_selector(request: DownloadRequest) -> str:
             f"best[height<=?{height}]/worstvideo*+bestaudio/worst"
         )
     raise ValueError("未知画质预设")
-

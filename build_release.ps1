@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "0.1.0"
+    [string]$Version = "0.2.0"
 )
 
 $ErrorActionPreference = "Stop"
@@ -25,7 +25,8 @@ foreach ($Item in $Required) {
 }
 
 python -m pytest
-python -m PyInstaller --noconfirm --clean --windowed --name VideoDownloadKing main.py
+python -m PyInstaller --noconfirm --clean --windowed --name VideoDownloadKing `
+    --add-data "video_download_king\assets;video_download_king\assets" main.py
 
 $PackageName = "VideoDownloadKing-v$Version-Windows-x64"
 $PackageDir = Join-Path $Root "release\$PackageName"

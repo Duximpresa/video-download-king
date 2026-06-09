@@ -30,7 +30,13 @@ class ProcessRunner:
         capture: bool = False,
     ) -> tuple[int, str]:
         command = [str(item) for item in args]
-        flags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+        flags = 0
+        startupinfo = None
+        if os.name == "nt":
+            flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
         self.cancelled = False
         with self._lock:
             self._process = subprocess.Popen(
@@ -43,6 +49,7 @@ class ProcessRunner:
                 errors="replace",
                 bufsize=1,
                 creationflags=flags,
+                startupinfo=startupinfo,
             )
         output: list[str] = []
         assert self._process.stdout is not None
@@ -71,7 +78,7 @@ class ProcessRunner:
                 check=False,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+                creationflags=subprocess.CREATE_NO_WINDOW,
             )
         else:
             os.killpg(os.getpgid(process.pid), signal.SIGTERM)
-

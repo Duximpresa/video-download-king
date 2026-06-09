@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from pathlib import Path
 
 
@@ -31,6 +32,46 @@ def unique_media_stem(directory: Path, stem: str) -> str:
     while any(directory.glob(f"{stem} ({index}).*")):
         index += 1
     return f"{stem} ({index})"
+
+
+TEMPLATE_FIELDS = {"title", "id", "channel", "platform", "upload_date", "download_date"}
+TEMPLATE_TOKEN = re.compile(r"\{([a-z_]+)\}")
+
+
+def display_date(value: str) -> str:
+    if len(value) == 8 and value.isdigit():
+        return f"{value[:4]}-{value[4:6]}-{value[6:]}"
+    return value
+
+
+def render_filename_template(template: str, values: dict[str, str]) -> str:
+    unknown = set(TEMPLATE_TOKEN.findall(template)) - TEMPLATE_FIELDS
+    if unknown:
+        raise ValueError(f"未知命名字段：{', '.join(sorted(unknown))}")
+    data = {key: values.get(key, "") for key in TEMPLATE_FIELDS}
+    data["upload_date"] = display_date(data["upload_date"])
+    data["download_date"] = data["download_date"] or datetime.now().strftime("%Y-%m-%d")
+    rendered = TEMPLATE_TOKEN.sub(lambda match: data.get(match.group(1), ""), template)
+    return sanitize_filename(rendered, 180)
+
+
+def sanitize_suffix(value: str, max_length: int = 40) -> str:
+    cleaned = sanitize_filename(value, max_length).strip(" .")
+    if not cleaned:
+        return ""
+    return cleaned if cleaned.startswith(("_", "-", " ")) else f"_{cleaned}"
+
+
+def has_matching_language(available: set[str], expression: str) -> bool:
+    patterns = [item.strip() for item in expression.split(",") if item.strip()]
+    for pattern in patterns:
+        try:
+            if any(re.fullmatch(pattern, language) for language in available):
+                return True
+        except re.error:
+            if pattern in available:
+                return True
+    return False
 
 
 def human_size(size: int | None) -> str:

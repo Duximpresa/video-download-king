@@ -37,8 +37,10 @@ from .formats import audio_formats, video_formats
 from .models import DownloadRequest, FormatInfo, MediaInfo, ProxyConfig, TaskProgress, TaskResult, TranscodeConfig
 from .paths import deno_path, ffmpeg_path, ffprobe_path, yt_dlp_path
 from .settings_dialog import SettingsDialog
-from .utils import human_size
+from .transcode import FFmpegService
+from .utils import has_matching_language, human_size, render_filename_template
 from .workers import AnalyzeWorker, DownloadWorker
+from . import __version__
 
 
 class MainWindow(QMainWindow):
@@ -47,18 +49,21 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.store = SettingsStore()
+        self.first_run = not self.store.path.exists()
         self.settings = self.store.load()
         self.media: MediaInfo | None = None
         self.thread: QThread | None = None
         self.worker = None
         self.network = QNetworkAccessManager(self)
 
-        self.setWindowTitle("Video Download King 0.1.0")
-        self.resize(1180, 820)
+        self.hardware_availability = {"nvidia": False, "intel": False, "amd": False}
+        self.setWindowTitle(f"Video Download King {__version__}")
+        self.resize(1280, 950)
         self._build_menu()
         self._build_ui()
         self._apply_settings()
         self._check_runtime()
+        self._detect_hardware()
 
     def _build_menu(self) -> None:
         menu = self.menuBar().addMenu("设置")
@@ -71,7 +76,7 @@ class MainWindow(QMainWindow):
             lambda: QMessageBox.information(
                 self,
                 "关于",
-                "Video Download King 0.1.0\n基于 yt-dlp 与 FFmpeg。",
+                f"Video Download King {__version__}\n基于 yt-dlp 与 FFmpeg。",
             )
         )
         help_menu.addAction(about)
@@ -111,7 +116,7 @@ class MainWindow(QMainWindow):
         info_group = QGroupBox("视频信息")
         info_layout = QHBoxLayout(info_group)
         self.thumbnail = QLabel("等待分析")
-        self.thumbnail.setFixedSize(240, 135)
+        self.thumbnail.setFixedSize(200, 112)
         self.thumbnail.setAlignment(Qt.AlignCenter)
         self.thumbnail.setStyleSheet("background:#20242b;border-radius:6px;color:#9aa4b2")
         self.title_label = QLabel("尚未分析链接")
@@ -164,7 +169,8 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(group)
         form = QFormLayout()
         self.mode_combo = QComboBox()
-        self.mode_combo.addItem("视频", "video")
+        self.mode_combo.addItem("视频+音频", "video_audio")
+        self.mode_combo.addItem("仅视频", "video_only")
         self.mode_combo.addItem("仅音频", "audio")
         self.mode_combo.addItem("高级流组合", "advanced")
         self.mode_combo.currentIndexChanged.connect(self._mode_changed)
@@ -193,9 +199,50 @@ class MainWindow(QMainWindow):
         form.addRow("音频格式", self.audio_output)
         layout.addLayout(form)
 
+        naming = QGroupBox("文件命名")
+        naming_layout = QVBoxLayout(naming)
+        self.filename_template = QLineEdit("{title} [{id}]")
+        self.filename_template.textChanged.connect(self._update_filename_preview)
+        naming_layout.addWidget(self.filename_template)
+        fields = QHBoxLayout()
+        for label, token in (
+            ("标题", "{title}"),
+            ("ID", "{id}"),
+            ("频道", "{channel}"),
+            ("平台", "{platform}"),
+            ("上传日期", "{upload_date}"),
+            ("下载日期", "{download_date}"),
+        ):
+            button = QPushButton(label)
+            button.clicked.connect(lambda _checked=False, value=token: self.filename_template.insert(value))
+            fields.addWidget(button)
+        naming_layout.addLayout(fields)
+        self.filename_preview = QLabel("预览：等待分析")
+        self.filename_preview.setWordWrap(True)
+        naming_layout.addWidget(self.filename_preview)
+        self.naming_group = naming
+
+        extras = QGroupBox("附属文件")
+        extras_layout = QFormLayout(extras)
+        self.download_thumbnail_check = QCheckBox("下载封面")
+        self.download_subtitles_check = QCheckBox("下载字幕")
+        self.embed_thumbnail_check = QCheckBox("将封面嵌入视频")
+        self.subtitle_languages = QLineEdit("zh-Hans,zh.*,en.*")
+        extras_layout.addRow(self.download_thumbnail_check, self.embed_thumbnail_check)
+        extras_layout.addRow(self.download_subtitles_check, self.subtitle_languages)
+        self.extras_group = extras
+
         self.format_tabs = QTabWidget()
+        self.video_selection_label = QLabel("当前视频流：未选择")
+        self.audio_selection_label = QLabel("当前音频流：未选择")
+        selection_row = QHBoxLayout()
+        selection_row.addWidget(self.video_selection_label)
+        selection_row.addWidget(self.audio_selection_label)
+        layout.addLayout(selection_row)
         self.video_table = self._new_format_table()
         self.audio_table = self._new_format_table()
+        self.video_table.itemSelectionChanged.connect(self._update_stream_selection)
+        self.audio_table.itemSelectionChanged.connect(self._update_stream_selection)
         self.format_tabs.addTab(self.video_table, "视频流")
         self.format_tabs.addTab(self.audio_table, "音频流")
         layout.addWidget(self.format_tabs, 1)
@@ -208,6 +255,9 @@ class MainWindow(QMainWindow):
         table.setSelectionBehavior(QAbstractItemView.SelectRows)
         table.setSelectionMode(QAbstractItemView.SingleSelection)
         table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        table.setAlternatingRowColors(True)
+        table.setMinimumHeight(350)
+        table.verticalHeader().setDefaultSectionSize(32)
         table.verticalHeader().setVisible(False)
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         table.horizontalHeader().setStretchLastSection(True)
@@ -215,12 +265,23 @@ class MainWindow(QMainWindow):
 
     def _build_transcode_panel(self) -> QWidget:
         group = QGroupBox("兼容 MP4")
-        layout = QVBoxLayout(group)
+        group_layout = QVBoxLayout(group)
+        tabs = QTabWidget()
+        transcode_page = QWidget()
+        layout = QVBoxLayout(transcode_page)
         self.transcode_check = QCheckBox("自动生成 H.264 + AAC 的 MP4")
         self.keep_source_check = QCheckBox("成功后保留原始下载文件")
         layout.addWidget(self.transcode_check)
         layout.addWidget(self.keep_source_check)
         form = QFormLayout()
+        self.processor_combo = QComboBox()
+        self.processor_combo.addItem("CPU", "cpu")
+        self.processor_combo.addItem("GPU", "gpu")
+        self.processor_combo.currentIndexChanged.connect(self._processor_changed)
+        self.vendor_combo = QComboBox()
+        self.vendor_combo.addItem("NVIDIA NVENC", "nvidia")
+        self.vendor_combo.addItem("Intel QSV", "intel")
+        self.vendor_combo.addItem("AMD AMF", "amd")
         self.rate_mode = QComboBox()
         self.rate_mode.addItem("自动", "auto")
         self.rate_mode.addItem("恒定质量", "quality")
@@ -241,18 +302,38 @@ class MainWindow(QMainWindow):
         self.audio_custom.setRange(0, 512)
         self.audio_custom.setSpecialValueText("使用上方选项")
         self.audio_custom.setSuffix(" kbps")
+        self.suffix_mode = QComboBox()
+        self.suffix_mode.addItem("自动编码后缀", "auto")
+        self.suffix_mode.addItem("自定义后缀", "custom")
+        self.suffix_mode.addItem("不追加后缀", "none")
+        self.suffix_mode.currentIndexChanged.connect(self._suffix_mode_changed)
+        self.custom_suffix = QLineEdit()
+        self.custom_suffix.setPlaceholderText("例如：_兼容版")
+        form.addRow("转码处理器", self.processor_combo)
+        form.addRow("GPU 厂商", self.vendor_combo)
         form.addRow("视频控制", self.rate_mode)
         form.addRow("质量值 (0-51)", self.quality_spin)
         form.addRow("视频码率", self.video_bitrate)
         form.addRow("音频码率", self.audio_bitrate)
         form.addRow("自定义音频码率", self.audio_custom)
+        form.addRow("文件后缀", self.suffix_mode)
+        form.addRow("自定义后缀", self.custom_suffix)
         layout.addLayout(form)
-        note = QLabel("自动检测 NVIDIA NVENC、Intel QSV、AMD AMF；不可用或失败时回退 CPU。")
+        note = QLabel("自动检测 NVIDIA NVENC、Intel QSV、AMD AMF；实际转码失败时询问是否回退 CPU。")
         note.setWordWrap(True)
         note.setStyleSheet("color:#687386")
         layout.addWidget(note)
         layout.addStretch()
         self._rate_mode_changed()
+        self._suffix_mode_changed()
+        tabs.addTab(transcode_page, "转码参数")
+        options_page = QWidget()
+        options_layout = QVBoxLayout(options_page)
+        options_layout.addWidget(self.naming_group)
+        options_layout.addWidget(self.extras_group)
+        options_layout.addStretch()
+        tabs.addTab(options_page, "命名与附属")
+        group_layout.addWidget(tabs)
         return group
 
     @staticmethod
@@ -268,6 +349,12 @@ class MainWindow(QMainWindow):
     def _apply_settings(self) -> None:
         self.path_edit.setText(str(self.settings.resolved_save_path))
         self.classify_check.setChecked(self.settings.classify_by_platform)
+        self.mode_combo.setCurrentIndex(max(0, self.mode_combo.findData(self.settings.output_mode)))
+        self.filename_template.setText(self.settings.filename_template)
+        self.download_thumbnail_check.setChecked(self.settings.download_thumbnail)
+        self.download_subtitles_check.setChecked(self.settings.download_subtitles)
+        self.embed_thumbnail_check.setChecked(self.settings.embed_thumbnail)
+        self.subtitle_languages.setText(self.settings.subtitle_languages)
         tc = self.settings.transcode
         self.transcode_check.setChecked(tc.enabled)
         self.keep_source_check.setChecked(tc.keep_source)
@@ -275,12 +362,49 @@ class MainWindow(QMainWindow):
         self.quality_spin.setValue(tc.quality)
         self.video_bitrate.setValue(tc.video_bitrate_kbps or 0)
         self.audio_bitrate.setCurrentIndex(max(0, self.audio_bitrate.findData(tc.audio_bitrate_kbps or 0)))
+        self.processor_combo.setCurrentIndex(max(0, self.processor_combo.findData(tc.processor)))
+        self.vendor_combo.setCurrentIndex(max(0, self.vendor_combo.findData(tc.hardware_vendor)))
+        self.suffix_mode.setCurrentIndex(max(0, self.suffix_mode.findData(tc.suffix_mode)))
+        self.custom_suffix.setText(tc.custom_suffix)
+        self._processor_changed()
+        self._suffix_mode_changed()
+        self._update_filename_preview()
 
     def _check_runtime(self) -> None:
         missing = [path.name for path in (yt_dlp_path(), ffmpeg_path(), ffprobe_path(), deno_path()) if not path.exists()]
         if missing:
             self._append_log(f"运行时尚未完整：缺少 {', '.join(missing)}")
             self.statusBar().showMessage("缺少运行时文件")
+
+    def _detect_hardware(self) -> None:
+        if not ffmpeg_path().exists():
+            return
+        self.statusBar().showMessage("正在检测硬件编码器...")
+        QApplication.processEvents()
+        self.hardware_availability = FFmpegService().detect_encoders(self._append_log)
+        for index in range(self.vendor_combo.count()):
+            vendor = self.vendor_combo.itemData(index)
+            item = self.vendor_combo.model().item(index)
+            available = self.hardware_availability.get(vendor, False)
+            item.setEnabled(available)
+            self.vendor_combo.setItemText(
+                index,
+                {
+                    "nvidia": "NVIDIA NVENC",
+                    "intel": "Intel QSV",
+                    "amd": "AMD AMF",
+                }[vendor]
+                + ("" if available else "（不可用）"),
+            )
+        if self.first_run and self.hardware_availability.get("nvidia"):
+            self.processor_combo.setCurrentIndex(self.processor_combo.findData("gpu"))
+            self.vendor_combo.setCurrentIndex(self.vendor_combo.findData("nvidia"))
+        elif self.processor_combo.currentData() == "gpu" and not self.hardware_availability.get(
+            self.vendor_combo.currentData(), False
+        ):
+            self.processor_combo.setCurrentIndex(self.processor_combo.findData("cpu"))
+        self._processor_changed()
+        self.statusBar().showMessage("就绪")
 
     def _open_settings(self) -> None:
         dialog = SettingsDialog(self.settings, self)
@@ -305,14 +429,30 @@ class MainWindow(QMainWindow):
             raise ValueError("请先输入 YouTube 视频网址")
         if not self.path_edit.text().strip():
             raise ValueError("请选择保存目录")
+        template = self.filename_template.text().strip() or "{title} [{id}]"
+        render_filename_template(
+            template,
+            {
+                "title": self.media.title if self.media else "视频标题",
+                "id": self.media.media_id if self.media else "ID",
+                "channel": self.media.channel if self.media else "频道",
+                "platform": self.media.platform if self.media else "YouTube",
+                "upload_date": self.media.upload_date if self.media else "2026-01-01",
+            },
+        )
         audio_rate = self.audio_custom.value() or self.audio_bitrate.currentData() or None
         transcode = TranscodeConfig(
             enabled=self.transcode_check.isChecked(),
             keep_source=self.keep_source_check.isChecked(),
+            processor=self.processor_combo.currentData(),
+            hardware_vendor=self.vendor_combo.currentData(),
             rate_mode=self.rate_mode.currentData(),
             quality=self.quality_spin.value(),
             video_bitrate_kbps=self.video_bitrate.value() or None,
             audio_bitrate_kbps=audio_rate,
+            source_video_bitrate_kbps=self._source_video_bitrate_hint(),
+            suffix_mode=self.suffix_mode.currentData(),
+            custom_suffix=self.custom_suffix.text(),
         )
         video_id = self._selected_format_id(self.video_table)
         audio_id = self._selected_format_id(self.audio_table)
@@ -321,6 +461,10 @@ class MainWindow(QMainWindow):
             output_dir=output,
             media_title=self.media.title if self.media else "",
             media_id=self.media.media_id if self.media else "",
+            media_channel=self.media.channel if self.media else "",
+            media_upload_date=self.media.upload_date if self.media else "",
+            media_platform=self.media.platform if self.media else "YouTube",
+            filename_template=template,
             classify_by_platform=self.classify_check.isChecked(),
             mode=self.mode_combo.currentData(),
             quality_preset=self.quality_combo.currentData(),
@@ -332,8 +476,38 @@ class MainWindow(QMainWindow):
             cookie_file=self.settings.cookie_file,
             cookie_browser=self.settings.cookie_browser,
             timeout=self.settings.timeout,
+            download_thumbnail=self.download_thumbnail_check.isChecked(),
+            download_subtitles=self.download_subtitles_check.isChecked(),
+            embed_thumbnail=self.embed_thumbnail_check.isChecked(),
+            subtitle_languages=self.subtitle_languages.text().strip() or "zh-Hans,zh.*,en.*",
+            use_automatic_subtitles=bool(
+                self.media
+                and not has_matching_language(
+                    set(self.media.subtitles),
+                    self.subtitle_languages.text().strip() or "zh-Hans,zh.*,en.*",
+                )
+            ),
             transcode=transcode,
         )
+
+    def _source_video_bitrate_hint(self) -> int | None:
+        if not self.media:
+            return None
+        selected_id = self._selected_format_id(self.video_table)
+        if self.mode_combo.currentData() == "advanced" and selected_id:
+            selected = next((item for item in self.media.formats if item.format_id == selected_id), None)
+            return round(selected.vbr or selected.tbr) if selected and (selected.vbr or selected.tbr) else None
+        height = None
+        preset = self.quality_combo.currentData()
+        if preset == "custom":
+            height = self.custom_height.value()
+        elif isinstance(preset, str) and preset.endswith("p") and preset[:-1].isdigit():
+            height = int(preset[:-1])
+        candidates = [item for item in video_formats(self.media.formats) if not height or (item.height or 0) <= height]
+        if not candidates:
+            return None
+        chosen = candidates[0] if preset != "worst" else candidates[-1]
+        return round(chosen.vbr or chosen.tbr) if (chosen.vbr or chosen.tbr) else None
 
     @staticmethod
     def _selected_format_id(table: QTableWidget) -> str | None:
@@ -372,6 +546,18 @@ class MainWindow(QMainWindow):
         self._start_worker(worker, worker.run)
         worker.progress.connect(self._update_progress)
         worker.completed.connect(self._download_complete)
+        worker.gpu_fallback_requested.connect(self._ask_gpu_fallback)
+
+    def _ask_gpu_fallback(self, diagnostic: str) -> None:
+        answer = QMessageBox.question(
+            self,
+            "GPU 转码失败",
+            f"{diagnostic}\n\n是否改用 CPU 继续转码？",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes,
+        )
+        if self.worker:
+            self.worker.resolve_gpu_fallback(answer == QMessageBox.Yes)
 
     def _start_worker(self, worker, run_slot) -> None:
         thread = QThread(self)
@@ -403,13 +589,15 @@ class MainWindow(QMainWindow):
         self.title_label.setText(media.title)
         duration = int(media.duration or 0)
         self.meta_label.setText(
-            f"平台：YouTube    时长：{duration // 60:02d}:{duration % 60:02d}    ID：{media.media_id}"
+            f"平台：YouTube    频道：{media.channel or '未知'}    "
+            f"时长：{duration // 60:02d}:{duration % 60:02d}    ID：{media.media_id}"
         )
         self._populate_table(self.video_table, video_formats(media.formats))
         self._populate_table(self.audio_table, audio_formats(media.formats), allow_none=True)
         self.download_button.setEnabled(True)
         self.progress_label.setText(f"分析完成，共 {len(media.formats)} 个格式")
         self.progress.setValue(0)
+        self._update_filename_preview()
         if media.thumbnail:
             reply = self.network.get(QNetworkRequest(QUrl(media.thumbnail)))
             reply.finished.connect(lambda: self._thumbnail_ready(reply))
@@ -456,8 +644,10 @@ class MainWindow(QMainWindow):
         if result.success:
             self.progress.setValue(100)
             self.progress_label.setText(f"完成：{result.output_path}")
-            self._append_log(f"输出文件：{result.output_path}")
-            QMessageBox.information(self, "任务完成", f"文件已保存：\n{result.output_path}")
+            files = result.output_files or ([result.output_path] if result.output_path else [])
+            listing = "\n".join(str(path) for path in files)
+            self._append_log(f"输出文件：\n{listing}")
+            QMessageBox.information(self, "任务完成", f"文件已保存：\n{listing}")
         elif result.error_category == "已取消":
             self.progress_label.setText("任务已取消")
             self._append_log("任务已取消")
@@ -484,28 +674,72 @@ class MainWindow(QMainWindow):
 
     def _mode_changed(self) -> None:
         mode = self.mode_combo.currentData()
-        self.quality_combo.setEnabled(mode == "video")
-        self.custom_height.setEnabled(mode == "video")
+        self.quality_combo.setEnabled(mode in {"video_audio", "video_only"})
+        self.custom_height.setEnabled(mode in {"video_audio", "video_only"})
         self.audio_output.setEnabled(mode == "audio")
         self.format_tabs.setEnabled(mode == "advanced")
-        self.transcode_check.setEnabled(mode != "audio")
+        self.transcode_check.setEnabled(mode not in {"audio", "video_only"})
+        self.embed_thumbnail_check.setEnabled(mode not in {"audio", "video_only"})
 
     def _rate_mode_changed(self) -> None:
         mode = self.rate_mode.currentData()
         self.quality_spin.setEnabled(mode == "quality")
         self.video_bitrate.setEnabled(mode == "bitrate")
 
+    def _processor_changed(self) -> None:
+        gpu = self.processor_combo.currentData() == "gpu"
+        self.vendor_combo.setEnabled(gpu)
+        if gpu and not self.hardware_availability.get(self.vendor_combo.currentData(), False):
+            first_available = next((vendor for vendor, available in self.hardware_availability.items() if available), None)
+            if first_available:
+                self.vendor_combo.setCurrentIndex(self.vendor_combo.findData(first_available))
+
+    def _suffix_mode_changed(self) -> None:
+        self.custom_suffix.setEnabled(self.suffix_mode.currentData() == "custom")
+
+    def _update_stream_selection(self) -> None:
+        self.video_selection_label.setText(f"当前视频流：{self._selected_format_id(self.video_table) or '未选择'}")
+        self.audio_selection_label.setText(f"当前音频流：{self._selected_format_id(self.audio_table) or '不追加音频'}")
+
+    def _update_filename_preview(self) -> None:
+        try:
+            preview = render_filename_template(
+                self.filename_template.text().strip() or "{title} [{id}]",
+                {
+                    "title": self.media.title if self.media else "视频标题",
+                    "id": self.media.media_id if self.media else "ID",
+                    "channel": self.media.channel if self.media else "频道",
+                    "platform": self.media.platform if self.media else "YouTube",
+                    "upload_date": self.media.upload_date if self.media else "20260101",
+                },
+            )
+            self.filename_preview.setText(f"预览：{preview}.mp4")
+            self.filename_preview.setStyleSheet("color:#475569")
+        except ValueError as exc:
+            self.filename_preview.setText(str(exc))
+            self.filename_preview.setStyleSheet("color:#dc2626")
+
     def _save_ui_settings(self) -> None:
         self.settings.save_path = self.path_edit.text().strip()
         self.settings.classify_by_platform = self.classify_check.isChecked()
+        self.settings.output_mode = self.mode_combo.currentData()
+        self.settings.filename_template = self.filename_template.text().strip() or "{title} [{id}]"
+        self.settings.download_thumbnail = self.download_thumbnail_check.isChecked()
+        self.settings.download_subtitles = self.download_subtitles_check.isChecked()
+        self.settings.embed_thumbnail = self.embed_thumbnail_check.isChecked()
+        self.settings.subtitle_languages = self.subtitle_languages.text().strip() or "zh-Hans,zh.*,en.*"
         audio_rate = self.audio_custom.value() or self.audio_bitrate.currentData() or None
         self.settings.transcode = TranscodeConfig(
             enabled=self.transcode_check.isChecked(),
             keep_source=self.keep_source_check.isChecked(),
+            processor=self.processor_combo.currentData(),
+            hardware_vendor=self.vendor_combo.currentData(),
             rate_mode=self.rate_mode.currentData(),
             quality=self.quality_spin.value(),
             video_bitrate_kbps=self.video_bitrate.value() or None,
             audio_bitrate_kbps=audio_rate,
+            suffix_mode=self.suffix_mode.currentData(),
+            custom_suffix=self.custom_suffix.text(),
         )
         self.store.save(self.settings)
 

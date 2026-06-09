@@ -37,10 +37,15 @@ class ProxyConfig:
 class TranscodeConfig:
     enabled: bool = True
     keep_source: bool = False
+    processor: Literal["cpu", "gpu"] = "cpu"
+    hardware_vendor: Literal["nvidia", "intel", "amd"] = "nvidia"
     rate_mode: Literal["auto", "quality", "bitrate"] = "auto"
     quality: int = 23
     video_bitrate_kbps: int | None = None
     audio_bitrate_kbps: int | None = None
+    source_video_bitrate_kbps: int | None = None
+    suffix_mode: Literal["auto", "custom", "none"] = "auto"
+    custom_suffix: str = ""
 
 
 @dataclass(slots=True)
@@ -85,21 +90,32 @@ class MediaInfo:
     title: str
     media_id: str
     extractor: str
+    channel: str = ""
+    upload_date: str = ""
+    platform: str = "YouTube"
     duration: float | None = None
     thumbnail: str = ""
     is_live: bool = False
+    subtitles: dict[str, Any] = field(default_factory=dict)
+    automatic_captions: dict[str, Any] = field(default_factory=dict)
     formats: list[FormatInfo] = field(default_factory=list)
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> "MediaInfo":
+        extractor = data.get("extractor_key") or data.get("extractor") or ""
         return cls(
             webpage_url=data.get("webpage_url") or data.get("original_url") or "",
             title=data.get("title") or "未命名视频",
             media_id=str(data.get("id") or ""),
-            extractor=data.get("extractor_key") or data.get("extractor") or "",
+            extractor=extractor,
+            channel=data.get("channel") or data.get("uploader") or "",
+            upload_date=data.get("upload_date") or "",
+            platform="YouTube" if "youtube" in extractor.lower() else extractor,
             duration=data.get("duration"),
             thumbnail=data.get("thumbnail") or "",
             is_live=bool(data.get("is_live")),
+            subtitles=data.get("subtitles") or {},
+            automatic_captions=data.get("automatic_captions") or {},
             formats=[FormatInfo.from_json(item) for item in data.get("formats", [])],
         )
 
@@ -110,8 +126,12 @@ class DownloadRequest:
     output_dir: Path
     media_title: str = ""
     media_id: str = ""
+    media_channel: str = ""
+    media_upload_date: str = ""
+    media_platform: str = "YouTube"
+    filename_template: str = "{title} [{id}]"
     classify_by_platform: bool = True
-    mode: Literal["video", "audio", "advanced"] = "video"
+    mode: Literal["video_audio", "video_only", "audio", "advanced"] = "video_audio"
     quality_preset: str = "best"
     custom_height: int | None = None
     video_format_id: str | None = None
@@ -121,6 +141,11 @@ class DownloadRequest:
     cookie_file: str = ""
     cookie_browser: Literal["", "chrome", "edge"] = ""
     timeout: int = 30
+    download_thumbnail: bool = False
+    download_subtitles: bool = False
+    embed_thumbnail: bool = False
+    subtitle_languages: str = "zh-Hans,zh.*,en.*"
+    use_automatic_subtitles: bool = False
     transcode: TranscodeConfig = field(default_factory=TranscodeConfig)
 
 
@@ -139,4 +164,12 @@ class TaskResult:
     success: bool
     message: str
     output_path: Path | None = None
+    output_files: list[Path] = field(default_factory=list)
     error_category: str = ""
+
+
+@dataclass(slots=True)
+class DownloadArtifacts:
+    media_path: Path
+    cover_paths: list[Path] = field(default_factory=list)
+    subtitle_paths: list[Path] = field(default_factory=list)

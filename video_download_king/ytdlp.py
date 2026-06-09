@@ -6,11 +6,11 @@ from collections.abc import Callable
 from pathlib import Path
 
 from .formats import format_selector
-from .models import DownloadRequest, MediaInfo, TaskProgress
+from .models import DownloadArtifacts, DownloadRequest, MediaInfo, TaskProgress
 from .paths import deno_path, ffmpeg_dir, yt_dlp_path
 from .platforms import validate_first_version_url
 from .processes import ProcessRunner
-from .utils import sanitize_filename, unique_media_stem
+from .utils import render_filename_template, unique_media_stem
 
 
 ProgressCallback = Callable[[TaskProgress], None]
@@ -90,10 +90,25 @@ class YtDlpService:
             raise ValueError("第一版暂不支持直播下载")
         return media
 
-    def build_download_args(self, request: DownloadRequest, output_dir: Path) -> list[str]:
+    def build_download_args(
+        self,
+        request: DownloadRequest,
+        output_dir: Path,
+        *,
+        include_optional: bool = True,
+    ) -> list[str]:
         selector = format_selector(request)
         if request.media_title and request.media_id:
-            stem = sanitize_filename(f"{request.media_title} [{request.media_id}]")
+            stem = render_filename_template(
+                request.filename_template,
+                {
+                    "title": request.media_title,
+                    "id": request.media_id,
+                    "channel": request.media_channel,
+                    "platform": request.media_platform,
+                    "upload_date": request.media_upload_date,
+                },
+            )
             stem = unique_media_stem(output_dir, stem)
             template = str(output_dir / f"{stem}.%(ext)s")
         else:
@@ -112,11 +127,32 @@ class YtDlpService:
             "--print",
             f"after_move:{FINAL_PREFIX}%(filepath)s",
         ]
-        if request.mode != "audio":
+        if request.mode in {"video_audio", "advanced"}:
             args.extend(["--merge-output-format", "mkv/mp4"])
-        elif request.audio_output != "original":
+        elif request.mode == "audio" and request.audio_output != "original":
             args.extend(["--extract-audio", "--audio-format", request.audio_output])
+        if include_optional:
+            args.extend(self._optional_args(request))
         args.append(request.url)
+        return args
+
+    @staticmethod
+    def _optional_args(request: DownloadRequest) -> list[str]:
+        args: list[str] = []
+        if request.download_thumbnail or request.embed_thumbnail:
+            args.append("--write-thumbnail")
+        if request.download_subtitles:
+            args.extend(
+                [
+                    "--write-auto-subs" if request.use_automatic_subtitles else "--write-subs",
+                    "--sub-langs",
+                    request.subtitle_languages,
+                    "--sub-format",
+                    "srt/best",
+                    "--convert-subs",
+                    "srt",
+                ]
+            )
         return args
 
     def download(
@@ -125,7 +161,7 @@ class YtDlpService:
         output_dir: Path,
         on_progress: ProgressCallback,
         on_log: LogCallback,
-    ) -> Path:
+    ) -> DownloadArtifacts:
         output_dir.mkdir(parents=True, exist_ok=True)
         final_path: Path | None = None
 
@@ -152,15 +188,49 @@ class YtDlpService:
             else:
                 on_log(line)
 
-        code, _ = self.runner.run(self.build_download_args(request, output_dir), on_line=handle_line)
+        main_args = self.build_download_args(request, output_dir, include_optional=False)
+        code, _ = self.runner.run(main_args, on_line=handle_line)
         if code:
             raise RuntimeError(f"yt-dlp 下载失败，退出码 {code}")
         if final_path and final_path.exists():
-            return final_path
-        candidates = sorted(output_dir.glob("*"), key=lambda path: path.stat().st_mtime, reverse=True)
-        if not candidates:
-            raise RuntimeError("下载完成，但未找到输出文件")
-        return candidates[0]
+            media_path = final_path
+        else:
+            candidates = sorted(
+                (path for path in output_dir.glob("*") if path.suffix.lower() not in {".jpg", ".jpeg", ".png", ".webp", ".srt", ".vtt", ".ass"}),
+                key=lambda path: path.stat().st_mtime,
+                reverse=True,
+            )
+            if not candidates:
+                raise RuntimeError("下载完成，但未找到输出文件")
+            media_path = candidates[0]
+        optional_args = self._optional_args(request)
+        if optional_args:
+            output_template = main_args[main_args.index("--output") + 1]
+            sidecar_command = [
+                yt_dlp_path(),
+                *self._common_args(request),
+                "--skip-download",
+                "--ignore-errors",
+                "--output",
+                output_template,
+                *optional_args,
+                request.url,
+            ]
+            sidecar_code, sidecar_output = self.runner.run(sidecar_command, capture=True)
+            diagnostic = "\n".join(
+                line for line in sidecar_output.splitlines() if "ERROR:" in line or "WARNING:" in line
+            )
+            if sidecar_code or diagnostic:
+                on_log(f"部分封面或字幕未能下载，主视频不受影响：{diagnostic or 'yt-dlp 返回非零状态'}")
+        cover_paths = [
+            path for path in output_dir.glob(f"{media_path.stem}.*")
+            if path.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}
+        ]
+        subtitle_paths = [
+            path for path in output_dir.glob(f"{media_path.stem}.*")
+            if path.suffix.lower() in {".srt", ".vtt", ".ass"}
+        ]
+        return DownloadArtifacts(media_path, cover_paths, subtitle_paths)
 
     def cancel(self) -> None:
         self.runner.cancel()
