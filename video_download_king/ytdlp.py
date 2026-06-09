@@ -97,22 +97,10 @@ class YtDlpService:
         *,
         include_optional: bool = True,
     ) -> list[str]:
+        if request.mode == "cover":
+            return self.build_cover_args(request, output_dir)
         selector = format_selector(request)
-        if request.media_title and request.media_id:
-            stem = render_filename_template(
-                request.filename_template,
-                {
-                    "title": request.media_title,
-                    "id": request.media_id,
-                    "channel": request.media_channel,
-                    "platform": request.media_platform,
-                    "upload_date": request.media_upload_date,
-                },
-            )
-            stem = unique_media_stem(output_dir, stem)
-            template = str(output_dir / f"{stem}.%(ext)s")
-        else:
-            template = str(output_dir / "%(title).180B [%(id)s].%(ext)s")
+        template = self._output_template(request, output_dir)
         args = [
             str(yt_dlp_path()),
             *self._common_args(request),
@@ -137,9 +125,39 @@ class YtDlpService:
         return args
 
     @staticmethod
+    def _output_template(request: DownloadRequest, output_dir: Path) -> str:
+        if request.media_title and request.media_id:
+            stem = render_filename_template(
+                request.filename_template,
+                {
+                    "title": request.media_title,
+                    "id": request.media_id,
+                    "channel": request.media_channel,
+                    "platform": request.media_platform,
+                    "upload_date": request.media_upload_date,
+                },
+            )
+            stem = unique_media_stem(output_dir, stem)
+            return str(output_dir / f"{stem}.%(ext)s")
+        return str(output_dir / "%(title).180B [%(id)s].%(ext)s")
+
+    def build_cover_args(self, request: DownloadRequest, output_dir: Path) -> list[str]:
+        return [
+            str(yt_dlp_path()),
+            *self._common_args(request),
+            "--newline",
+            "--no-overwrites",
+            "--skip-download",
+            "--write-thumbnail",
+            "--output",
+            self._output_template(request, output_dir),
+            request.url,
+        ]
+
+    @staticmethod
     def _optional_args(request: DownloadRequest) -> list[str]:
         args: list[str] = []
-        if request.download_thumbnail or request.embed_thumbnail:
+        if request.download_thumbnail:
             args.append("--write-thumbnail")
         if request.download_subtitles:
             args.extend(
@@ -163,6 +181,8 @@ class YtDlpService:
         on_log: LogCallback,
     ) -> DownloadArtifacts:
         output_dir.mkdir(parents=True, exist_ok=True)
+        if request.mode == "cover":
+            return self._download_cover(request, output_dir, on_log)
         final_path: Path | None = None
 
         def handle_line(line: str) -> None:
@@ -231,6 +251,34 @@ class YtDlpService:
             if path.suffix.lower() in {".srt", ".vtt", ".ass"}
         ]
         return DownloadArtifacts(media_path, cover_paths, subtitle_paths)
+
+    def _download_cover(
+        self,
+        request: DownloadRequest,
+        output_dir: Path,
+        on_log: LogCallback,
+    ) -> DownloadArtifacts:
+        before = {
+            path.resolve()
+            for path in output_dir.iterdir()
+            if path.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}
+        }
+        code, output = self.runner.run(self.build_cover_args(request, output_dir), capture=True)
+        if output:
+            for line in output.splitlines():
+                on_log(line)
+        covers = sorted(
+            (
+                path
+                for path in output_dir.iterdir()
+                if path.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}
+                and path.resolve() not in before
+            ),
+            key=lambda path: path.stat().st_mtime,
+        )
+        if code or not covers:
+            raise RuntimeError(output or "封面下载完成，但未找到输出图片")
+        return DownloadArtifacts(None, covers, [])
 
     def cancel(self) -> None:
         self.runner.cancel()

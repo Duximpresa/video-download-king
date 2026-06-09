@@ -112,6 +112,13 @@ def test_old_video_mode_is_migrated(tmp_path: Path) -> None:
     assert SettingsStore(path).load().output_mode == "video_audio"
 
 
+def test_old_embed_thumbnail_setting_is_ignored(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"embed_thumbnail": True}), encoding="utf-8")
+    settings = SettingsStore(path).load()
+    assert not hasattr(settings, "embed_thumbnail")
+
+
 def test_corrupt_settings_are_backed_up(tmp_path: Path) -> None:
     path = tmp_path / "settings.json"
     path.write_text("{broken", encoding="utf-8")
@@ -151,3 +158,20 @@ def test_download_options_for_sidecars_and_naming(tmp_path: Path) -> None:
     assert "--write-subs" not in args
     assert "--convert-subs" in args
     assert any("标题-频道-abc" in item for item in args)
+
+
+def test_cover_only_command_has_no_media_format_args(tmp_path: Path) -> None:
+    req = request(
+        mode="cover",
+        media_title="封面测试",
+        media_id="abc",
+        filename_template="{title}-{id}",
+        download_subtitles=True,
+    )
+    args = YtDlpService().build_download_args(req, tmp_path)
+    assert "--skip-download" in args
+    assert "--write-thumbnail" in args
+    assert "--format" not in args
+    assert "--write-subs" not in args
+    assert "--write-auto-subs" not in args
+    assert any("封面测试-abc" in item for item in args)

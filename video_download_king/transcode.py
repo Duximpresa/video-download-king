@@ -38,6 +38,18 @@ class ProbeInfo:
         return self.audio_codec == "aac" or not self.audio_codec
 
 
+@dataclass(slots=True, frozen=True)
+class VideoRateDecision:
+    strategy: str
+    source_codec: str
+    source_bitrate_kbps: int | None
+    multiplier: float | None = None
+    target_bitrate_kbps: int | None = None
+    quality: int | None = None
+    maxrate_kbps: int | None = None
+    bufsize_kbps: int | None = None
+
+
 class FFmpegService:
     HARDWARE_ENCODERS = {
         "nvidia": "h264_nvenc",
@@ -145,7 +157,7 @@ class FFmpegService:
         return 800
 
     @staticmethod
-    def auto_video_bitrate(info: ProbeInfo, hinted_kbps: int | None = None) -> int:
+    def source_video_bitrate(info: ProbeInfo, hinted_kbps: int | None = None) -> int | None:
         if info.video_bitrate and info.video_bitrate > 0:
             return max(100, round(info.video_bitrate / 1000))
         if info.format_bitrate and info.format_bitrate > 0:
@@ -159,7 +171,71 @@ class FFmpegService:
                 return max(100, round(estimated / 1000))
         if hinted_kbps and hinted_kbps > 0:
             return max(100, round(hinted_kbps))
-        return FFmpegService._fallback_video_bitrate(info.height)
+        return None
+
+    @staticmethod
+    def normalize_video_codec(codec: str) -> str:
+        value = (codec or "").strip().lower()
+        aliases = {
+            "avc": "h264",
+            "avc1": "h264",
+            "h.264": "h264",
+            "h265": "hevc",
+            "h.265": "hevc",
+            "hev1": "hevc",
+            "hvc1": "hevc",
+            "av01": "av1",
+            "mpeg2video": "mpeg2",
+            "mpeg-2": "mpeg2",
+            "mpeg-4": "mpeg4",
+        }
+        if value.startswith("vp09"):
+            return "vp9"
+        if value.startswith("vp08"):
+            return "vp8"
+        return aliases.get(value, value)
+
+    @staticmethod
+    def automatic_rate_decision(info: ProbeInfo, config: TranscodeConfig) -> VideoRateDecision:
+        codec = FFmpegService.normalize_video_codec(info.video_codec or config.source_video_codec)
+        source = FFmpegService.source_video_bitrate(info, config.source_video_bitrate_kbps)
+        gpu = config.processor == "gpu"
+        multipliers = {
+            "h264": (1.0, 1.0),
+            "vp8": (1.3, 1.3),
+            "vp9": (1.8, 2.0),
+            "hevc": (2.0, 2.2),
+            "av1": (2.0, 2.2),
+            "mpeg4": (1.0, 1.0),
+            "mpeg2": (1.0, 1.0),
+        }
+        if codec in multipliers:
+            multiplier = multipliers[codec][1 if gpu else 0]
+            target = FFmpegService._fallback_video_bitrate(info.height)
+            if source:
+                target = max(100, min(round(source * multiplier), round(source * 2.2)))
+            return VideoRateDecision(
+                strategy="bitrate",
+                source_codec=codec,
+                source_bitrate_kbps=source,
+                multiplier=multiplier,
+                target_bitrate_kbps=target,
+            )
+
+        volume_base = source or FFmpegService._fallback_video_bitrate(info.height)
+        return VideoRateDecision(
+            strategy="constrained_quality",
+            source_codec=codec or "unknown",
+            source_bitrate_kbps=source,
+            quality=23,
+            maxrate_kbps=max(100, round(volume_base * 2.0)),
+            bufsize_kbps=max(200, round(volume_base * 4.0)),
+        )
+
+    @staticmethod
+    def auto_video_bitrate(info: ProbeInfo, hinted_kbps: int | None = None) -> int:
+        source = FFmpegService.source_video_bitrate(info, hinted_kbps)
+        return source or FFmpegService._fallback_video_bitrate(info.height)
 
     @staticmethod
     def _auto_audio_bitrate(info: ProbeInfo) -> int:
@@ -171,8 +247,23 @@ class FFmpegService:
         if config.rate_mode == "bitrate" and config.video_bitrate_kbps:
             return ["-b:v", f"{config.video_bitrate_kbps}k"]
         if config.rate_mode == "auto":
-            bitrate = FFmpegService.auto_video_bitrate(info, config.source_video_bitrate_kbps)
-            return ["-b:v", f"{bitrate}k"]
+            decision = FFmpegService.automatic_rate_decision(info, config)
+            if decision.strategy == "bitrate":
+                return ["-b:v", f"{decision.target_bitrate_kbps}k"]
+            quality = str(decision.quality or 23)
+            limits = [
+                "-maxrate",
+                f"{decision.maxrate_kbps}k",
+                "-bufsize",
+                f"{decision.bufsize_kbps}k",
+            ]
+            if encoder == "libx264":
+                return ["-crf", quality, "-preset", "medium", *limits]
+            if encoder == "h264_nvenc":
+                return ["-rc", "vbr", "-cq", quality, "-b:v", "0", "-preset", "p5", *limits]
+            if encoder == "h264_qsv":
+                return ["-global_quality", quality, *limits]
+            return ["-qp_i", quality, "-qp_p", quality, *limits]
         quality = str(max(0, min(51, config.quality)))
         if encoder == "libx264":
             return ["-crf", quality, "-preset", "medium"]
@@ -238,6 +329,27 @@ class FFmpegService:
         temp = final.with_name(f"{final.stem}.transcoding.tmp.mp4")
         encoder = self.select_encoder(config)
         duration_us = (info.duration or 0) * 1_000_000
+        if action in {"video", "both"} and config.rate_mode == "auto":
+            decision = self.automatic_rate_decision(info, config)
+            source_rate = (
+                f"{decision.source_bitrate_kbps} kbps"
+                if decision.source_bitrate_kbps
+                else "unknown"
+            )
+            if decision.strategy == "bitrate":
+                on_log(
+                    "自动码率："
+                    f"源编码={decision.source_codec}，源码率={source_rate}，"
+                    f"补偿系数={decision.multiplier:.1f}x，目标码率={decision.target_bitrate_kbps} kbps，"
+                    f"处理器={config.processor.upper()}"
+                )
+            else:
+                on_log(
+                    "自动质量保护："
+                    f"源编码={decision.source_codec}，源码率={source_rate}，"
+                    f"质量值={decision.quality}，maxrate={decision.maxrate_kbps} kbps，"
+                    f"bufsize={decision.bufsize_kbps} kbps，处理器={config.processor.upper()}"
+                )
 
         def run_once(selected: str) -> tuple[int, str]:
             last_lines: list[str] = []
@@ -278,44 +390,6 @@ class FFmpegService:
         if not config.keep_source and source.resolve() != final.resolve():
             source.unlink(missing_ok=True)
         return final
-
-    def embed_cover(
-        self,
-        media_path: Path,
-        cover_path: Path,
-        on_log: Callable[[str], None],
-    ) -> bool:
-        temp = media_path.with_name(f"{media_path.stem}.cover.tmp{media_path.suffix}")
-        args = [
-            ffmpeg_path(),
-            "-hide_banner",
-            "-y",
-            "-i",
-            media_path,
-            "-i",
-            cover_path,
-            "-map",
-            "0",
-            "-map",
-            "1:0",
-            "-c:v:0",
-            "copy",
-            "-c:a",
-            "copy",
-            "-c:v:1",
-            "mjpeg",
-            "-disposition:v:1",
-            "attached_pic",
-            temp,
-        ]
-        code, output = self.runner.run(args, capture=True)
-        if code:
-            temp.unlink(missing_ok=True)
-            on_log(f"封面嵌入失败，视频文件仍然可用：{output}")
-            return False
-        os.replace(temp, media_path)
-        on_log("封面已嵌入视频")
-        return True
 
     def cancel(self) -> None:
         self.runner.cancel()

@@ -78,7 +78,7 @@ class DownloadWorker(QObject):
             )
             source = artifacts.media_path
             result_path = source
-            if self.request.transcode.enabled and self.request.mode not in {"audio", "video_only"}:
+            if source and self.request.transcode.enabled and self.request.mode not in {"audio", "video_only", "cover"}:
                 self.progress.emit(TaskProgress(stage="检测", percent=0, message="正在检查媒体编码"))
                 try:
                     result_path = self.transcoder.convert(
@@ -101,18 +101,15 @@ class DownloadWorker(QObject):
                         self.progress.emit,
                         self.log.emit,
                     )
-            artifacts.cover_paths = self._rename_sidecars(source, result_path, artifacts.cover_paths)
-            artifacts.subtitle_paths = self._rename_sidecars(source, result_path, artifacts.subtitle_paths)
-            if self.request.embed_thumbnail and artifacts.cover_paths and self.request.mode != "audio":
-                self.transcoder.embed_cover(result_path, artifacts.cover_paths[0], self.log.emit)
-                if not self.request.download_thumbnail:
-                    for cover in artifacts.cover_paths:
-                        cover.unlink(missing_ok=True)
-                    artifacts.cover_paths = []
-            elif self.request.embed_thumbnail and not artifacts.cover_paths:
-                self.log.emit("未找到可用封面，已跳过嵌入")
+            if source and result_path:
+                artifacts.cover_paths = self._rename_sidecars(source, result_path, artifacts.cover_paths)
+                artifacts.subtitle_paths = self._rename_sidecars(source, result_path, artifacts.subtitle_paths)
             self.progress.emit(TaskProgress(stage="完成", percent=100))
-            output_files = [result_path, *artifacts.cover_paths, *artifacts.subtitle_paths]
+            output_files = [
+                path
+                for path in [result_path, *artifacts.cover_paths, *artifacts.subtitle_paths]
+                if path is not None
+            ]
             self.completed.emit(TaskResult(True, "下载完成", result_path, output_files))
         except ProcessCancelled:
             self.completed.emit(TaskResult(False, "任务已取消", error_category="已取消"))

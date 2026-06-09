@@ -129,10 +129,13 @@ class MainWindow(QMainWindow):
         info_layout.addWidget(self.thumbnail)
         info_layout.addLayout(details, 1)
         root.addWidget(info_group)
+        root.addWidget(self._build_download_options())
 
         splitter = QSplitter(Qt.Horizontal)
-        splitter.addWidget(self._build_format_panel())
-        splitter.addWidget(self._build_transcode_panel())
+        self.format_panel = self._build_format_panel()
+        self.transcode_panel = self._build_transcode_panel()
+        splitter.addWidget(self.format_panel)
+        splitter.addWidget(self.transcode_panel)
         splitter.setSizes([700, 430])
         root.addWidget(splitter, 1)
         self._mode_changed()
@@ -172,6 +175,7 @@ class MainWindow(QMainWindow):
         self.mode_combo.addItem("视频+音频", "video_audio")
         self.mode_combo.addItem("仅视频", "video_only")
         self.mode_combo.addItem("仅音频", "audio")
+        self.mode_combo.addItem("仅封面", "cover")
         self.mode_combo.addItem("高级流组合", "advanced")
         self.mode_combo.currentIndexChanged.connect(self._mode_changed)
         self.quality_combo = QComboBox()
@@ -187,6 +191,7 @@ class MainWindow(QMainWindow):
         ):
             self.quality_combo.addItem(label, value)
         self.custom_height = QSpinBox()
+        self.custom_height.setButtonSymbols(QSpinBox.NoButtons)
         self.custom_height.setRange(144, 4320)
         self.custom_height.setValue(1080)
         self.custom_height.setSuffix(" p")
@@ -198,39 +203,6 @@ class MainWindow(QMainWindow):
         form.addRow("自定义高度", self.custom_height)
         form.addRow("音频格式", self.audio_output)
         layout.addLayout(form)
-
-        naming = QGroupBox("文件命名")
-        naming_layout = QVBoxLayout(naming)
-        self.filename_template = QLineEdit("{title} [{id}]")
-        self.filename_template.textChanged.connect(self._update_filename_preview)
-        naming_layout.addWidget(self.filename_template)
-        fields = QHBoxLayout()
-        for label, token in (
-            ("标题", "{title}"),
-            ("ID", "{id}"),
-            ("频道", "{channel}"),
-            ("平台", "{platform}"),
-            ("上传日期", "{upload_date}"),
-            ("下载日期", "{download_date}"),
-        ):
-            button = QPushButton(label)
-            button.clicked.connect(lambda _checked=False, value=token: self.filename_template.insert(value))
-            fields.addWidget(button)
-        naming_layout.addLayout(fields)
-        self.filename_preview = QLabel("预览：等待分析")
-        self.filename_preview.setWordWrap(True)
-        naming_layout.addWidget(self.filename_preview)
-        self.naming_group = naming
-
-        extras = QGroupBox("附属文件")
-        extras_layout = QFormLayout(extras)
-        self.download_thumbnail_check = QCheckBox("下载封面")
-        self.download_subtitles_check = QCheckBox("下载字幕")
-        self.embed_thumbnail_check = QCheckBox("将封面嵌入视频")
-        self.subtitle_languages = QLineEdit("zh-Hans,zh.*,en.*")
-        extras_layout.addRow(self.download_thumbnail_check, self.embed_thumbnail_check)
-        extras_layout.addRow(self.download_subtitles_check, self.subtitle_languages)
-        self.extras_group = extras
 
         self.format_tabs = QTabWidget()
         self.video_selection_label = QLabel("当前视频流：未选择")
@@ -246,6 +218,45 @@ class MainWindow(QMainWindow):
         self.format_tabs.addTab(self.video_table, "视频流")
         self.format_tabs.addTab(self.audio_table, "音频流")
         layout.addWidget(self.format_tabs, 1)
+        return group
+
+    def _build_download_options(self) -> QWidget:
+        group = QGroupBox("下载选项")
+        layout = QGridLayout(group)
+        self.filename_template = QLineEdit("{title} [{id}]")
+        self.filename_template.textChanged.connect(self._update_filename_preview)
+        layout.addWidget(QLabel("命名模板"), 0, 0)
+        layout.addWidget(self.filename_template, 0, 1, 1, 4)
+
+        fields = QHBoxLayout()
+        for label, token in (
+            ("标题", "{title}"),
+            ("ID", "{id}"),
+            ("频道", "{channel}"),
+            ("平台", "{platform}"),
+            ("上传日期", "{upload_date}"),
+            ("下载日期", "{download_date}"),
+        ):
+            button = QPushButton(label)
+            button.clicked.connect(lambda _checked=False, value=token: self.filename_template.insert(value))
+            fields.addWidget(button)
+        layout.addLayout(fields, 1, 0, 1, 3)
+
+        self.download_thumbnail_check = QCheckBox("下载封面")
+        self.download_subtitles_check = QCheckBox("下载字幕")
+        self.download_subtitles_check.toggled.connect(self._mode_changed)
+        self.subtitle_languages = QLineEdit("zh-Hans,zh.*,en.*")
+        self.subtitle_languages.setPlaceholderText("字幕语言")
+        extras = QHBoxLayout()
+        extras.addWidget(self.download_thumbnail_check)
+        extras.addWidget(self.download_subtitles_check)
+        extras.addWidget(self.subtitle_languages)
+        layout.addLayout(extras, 1, 3, 1, 2)
+
+        self.filename_preview = QLabel("预览：等待分析")
+        self.filename_preview.setWordWrap(True)
+        layout.addWidget(self.filename_preview, 2, 0, 1, 5)
+        layout.setColumnStretch(1, 1)
         return group
 
     @staticmethod
@@ -265,10 +276,7 @@ class MainWindow(QMainWindow):
 
     def _build_transcode_panel(self) -> QWidget:
         group = QGroupBox("兼容 MP4")
-        group_layout = QVBoxLayout(group)
-        tabs = QTabWidget()
-        transcode_page = QWidget()
-        layout = QVBoxLayout(transcode_page)
+        layout = QVBoxLayout(group)
         self.transcode_check = QCheckBox("自动生成 H.264 + AAC 的 MP4")
         self.keep_source_check = QCheckBox("成功后保留原始下载文件")
         layout.addWidget(self.transcode_check)
@@ -288,9 +296,11 @@ class MainWindow(QMainWindow):
         self.rate_mode.addItem("目标码率", "bitrate")
         self.rate_mode.currentIndexChanged.connect(self._rate_mode_changed)
         self.quality_spin = QSpinBox()
+        self.quality_spin.setButtonSymbols(QSpinBox.NoButtons)
         self.quality_spin.setRange(0, 51)
         self.quality_spin.setValue(23)
         self.video_bitrate = QSpinBox()
+        self.video_bitrate.setButtonSymbols(QSpinBox.NoButtons)
         self.video_bitrate.setRange(0, 100000)
         self.video_bitrate.setSpecialValueText("自动")
         self.video_bitrate.setSuffix(" kbps")
@@ -299,6 +309,7 @@ class MainWindow(QMainWindow):
         for value in (96, 128, 192, 256, 320):
             self.audio_bitrate.addItem(f"{value} kbps", value)
         self.audio_custom = QSpinBox()
+        self.audio_custom.setButtonSymbols(QSpinBox.NoButtons)
         self.audio_custom.setRange(0, 512)
         self.audio_custom.setSpecialValueText("使用上方选项")
         self.audio_custom.setSuffix(" kbps")
@@ -326,14 +337,6 @@ class MainWindow(QMainWindow):
         layout.addStretch()
         self._rate_mode_changed()
         self._suffix_mode_changed()
-        tabs.addTab(transcode_page, "转码参数")
-        options_page = QWidget()
-        options_layout = QVBoxLayout(options_page)
-        options_layout.addWidget(self.naming_group)
-        options_layout.addWidget(self.extras_group)
-        options_layout.addStretch()
-        tabs.addTab(options_page, "命名与附属")
-        group_layout.addWidget(tabs)
         return group
 
     @staticmethod
@@ -353,7 +356,6 @@ class MainWindow(QMainWindow):
         self.filename_template.setText(self.settings.filename_template)
         self.download_thumbnail_check.setChecked(self.settings.download_thumbnail)
         self.download_subtitles_check.setChecked(self.settings.download_subtitles)
-        self.embed_thumbnail_check.setChecked(self.settings.embed_thumbnail)
         self.subtitle_languages.setText(self.settings.subtitle_languages)
         tc = self.settings.transcode
         self.transcode_check.setChecked(tc.enabled)
@@ -451,6 +453,7 @@ class MainWindow(QMainWindow):
             video_bitrate_kbps=self.video_bitrate.value() or None,
             audio_bitrate_kbps=audio_rate,
             source_video_bitrate_kbps=self._source_video_bitrate_hint(),
+            source_video_codec=self._source_video_codec_hint(),
             suffix_mode=self.suffix_mode.currentData(),
             custom_suffix=self.custom_suffix.text(),
         )
@@ -476,9 +479,8 @@ class MainWindow(QMainWindow):
             cookie_file=self.settings.cookie_file,
             cookie_browser=self.settings.cookie_browser,
             timeout=self.settings.timeout,
-            download_thumbnail=self.download_thumbnail_check.isChecked(),
-            download_subtitles=self.download_subtitles_check.isChecked(),
-            embed_thumbnail=self.embed_thumbnail_check.isChecked(),
+            download_thumbnail=self.download_thumbnail_check.isChecked() or self.mode_combo.currentData() == "cover",
+            download_subtitles=self.download_subtitles_check.isChecked() and self.mode_combo.currentData() != "cover",
             subtitle_languages=self.subtitle_languages.text().strip() or "zh-Hans,zh.*,en.*",
             use_automatic_subtitles=bool(
                 self.media
@@ -508,6 +510,25 @@ class MainWindow(QMainWindow):
             return None
         chosen = candidates[0] if preset != "worst" else candidates[-1]
         return round(chosen.vbr or chosen.tbr) if (chosen.vbr or chosen.tbr) else None
+
+    def _source_video_codec_hint(self) -> str:
+        if not self.media:
+            return ""
+        selected_id = self._selected_format_id(self.video_table)
+        if self.mode_combo.currentData() == "advanced" and selected_id:
+            selected = next((item for item in self.media.formats if item.format_id == selected_id), None)
+            return selected.vcodec if selected else ""
+        height = None
+        preset = self.quality_combo.currentData()
+        if preset == "custom":
+            height = self.custom_height.value()
+        elif isinstance(preset, str) and preset.endswith("p") and preset[:-1].isdigit():
+            height = int(preset[:-1])
+        candidates = [item for item in video_formats(self.media.formats) if not height or (item.height or 0) <= height]
+        if not candidates:
+            return ""
+        chosen = candidates[0] if preset != "worst" else candidates[-1]
+        return chosen.vcodec
 
     @staticmethod
     def _selected_format_id(table: QTableWidget) -> str | None:
@@ -643,8 +664,8 @@ class MainWindow(QMainWindow):
     def _download_complete(self, result: TaskResult) -> None:
         if result.success:
             self.progress.setValue(100)
-            self.progress_label.setText(f"完成：{result.output_path}")
             files = result.output_files or ([result.output_path] if result.output_path else [])
+            self.progress_label.setText(f"完成：{files[0] if files else '任务完成'}")
             listing = "\n".join(str(path) for path in files)
             self._append_log(f"输出文件：\n{listing}")
             QMessageBox.information(self, "任务完成", f"文件已保存：\n{listing}")
@@ -678,8 +699,15 @@ class MainWindow(QMainWindow):
         self.custom_height.setEnabled(mode in {"video_audio", "video_only"})
         self.audio_output.setEnabled(mode == "audio")
         self.format_tabs.setEnabled(mode == "advanced")
-        self.transcode_check.setEnabled(mode not in {"audio", "video_only"})
-        self.embed_thumbnail_check.setEnabled(mode not in {"audio", "video_only"})
+        cover_only = mode == "cover"
+        self.format_panel.setEnabled(not cover_only)
+        self.transcode_panel.setEnabled(not cover_only)
+        self.transcode_check.setEnabled(mode not in {"audio", "video_only", "cover"})
+        self.download_thumbnail_check.setEnabled(not cover_only)
+        self.download_subtitles_check.setEnabled(not cover_only)
+        self.subtitle_languages.setEnabled(not cover_only and self.download_subtitles_check.isChecked())
+        self.download_thumbnail_check.setText("仅封面模式自动下载" if cover_only else "下载封面")
+        self._update_filename_preview()
 
     def _rate_mode_changed(self) -> None:
         mode = self.rate_mode.currentData()
@@ -713,7 +741,8 @@ class MainWindow(QMainWindow):
                     "upload_date": self.media.upload_date if self.media else "20260101",
                 },
             )
-            self.filename_preview.setText(f"预览：{preview}.mp4")
+            extension = "原始图片格式" if self.mode_combo.currentData() == "cover" else "mp4"
+            self.filename_preview.setText(f"预览：{preview}.{extension}")
             self.filename_preview.setStyleSheet("color:#475569")
         except ValueError as exc:
             self.filename_preview.setText(str(exc))
@@ -726,7 +755,6 @@ class MainWindow(QMainWindow):
         self.settings.filename_template = self.filename_template.text().strip() or "{title} [{id}]"
         self.settings.download_thumbnail = self.download_thumbnail_check.isChecked()
         self.settings.download_subtitles = self.download_subtitles_check.isChecked()
-        self.settings.embed_thumbnail = self.embed_thumbnail_check.isChecked()
         self.settings.subtitle_languages = self.subtitle_languages.text().strip() or "zh-Hans,zh.*,en.*"
         audio_rate = self.audio_custom.value() or self.audio_bitrate.currentData() or None
         self.settings.transcode = TranscodeConfig(

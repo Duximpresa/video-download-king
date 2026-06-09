@@ -44,6 +44,7 @@ class TranscodeConfig:
     video_bitrate_kbps: int | None = None
     audio_bitrate_kbps: int | None = None
     source_video_bitrate_kbps: int | None = None
+    source_video_codec: str = ""
     suffix_mode: Literal["auto", "custom", "none"] = "auto"
     custom_suffix: str = ""
 
@@ -131,7 +132,7 @@ class DownloadRequest:
     media_platform: str = "YouTube"
     filename_template: str = "{title} [{id}]"
     classify_by_platform: bool = True
-    mode: Literal["video_audio", "video_only", "audio", "advanced"] = "video_audio"
+    mode: Literal["video_audio", "video_only", "audio", "cover", "advanced"] = "video_audio"
     quality_preset: str = "best"
     custom_height: int | None = None
     video_format_id: str | None = None
@@ -143,7 +144,6 @@ class DownloadRequest:
     timeout: int = 30
     download_thumbnail: bool = False
     download_subtitles: bool = False
-    embed_thumbnail: bool = False
     subtitle_languages: str = "zh-Hans,zh.*,en.*"
     use_automatic_subtitles: bool = False
     transcode: TranscodeConfig = field(default_factory=TranscodeConfig)
@@ -170,6 +170,6 @@ class TaskResult:
 
 @dataclass(slots=True)
 class DownloadArtifacts:
-    media_path: Path
+    media_path: Path | None
     cover_paths: list[Path] = field(default_factory=list)
     subtitle_paths: list[Path] = field(default_factory=list)

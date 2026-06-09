@@ -56,6 +56,7 @@ class SettingsDialog(QDialog):
         self.proxy_scheme.setCurrentIndex(max(0, self.proxy_scheme.findData(settings.proxy.scheme)))
         self.proxy_host = QLineEdit(settings.proxy.host)
         self.proxy_port = QSpinBox()
+        self.proxy_port.setButtonSymbols(QSpinBox.NoButtons)
         self.proxy_port.setRange(0, 65535)
         self.proxy_port.setSpecialValueText("未设置")
         self.proxy_port.setValue(settings.proxy.port or 0)
@@ -92,6 +93,7 @@ class SettingsDialog(QDialog):
         page = QWidget()
         form = QFormLayout(page)
         self.timeout = QSpinBox()
+        self.timeout.setButtonSymbols(QSpinBox.NoButtons)
         self.timeout.setRange(5, 300)
         self.timeout.setSuffix(" 秒")
         self.timeout.setValue(settings.timeout)
@@ -114,4 +116,3 @@ class SettingsDialog(QDialog):
         settings.cookie_file = self.cookie_file.text().strip()
         settings.cookie_browser = self.cookie_mode.currentData()
         settings.timeout = self.timeout.value()
-

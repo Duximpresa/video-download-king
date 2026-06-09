@@ -23,7 +23,6 @@ class AppSettings:
     filename_template: str = "{title} [{id}]"
     download_thumbnail: bool = False
     download_subtitles: bool = False
-    embed_thumbnail: bool = False
     subtitle_languages: str = "zh-Hans,zh.*,en.*"
     transcode: TranscodeConfig = field(default_factory=TranscodeConfig)
 
@@ -57,7 +56,6 @@ class SettingsStore:
                 filename_template=data.get("filename_template", "{title} [{id}]"),
                 download_thumbnail=bool(data.get("download_thumbnail", False)),
                 download_subtitles=bool(data.get("download_subtitles", False)),
-                embed_thumbnail=bool(data.get("embed_thumbnail", False)),
                 subtitle_languages=data.get("subtitle_languages", "zh-Hans,zh.*,en.*"),
                 transcode=TranscodeConfig(
                     **{key: value for key, value in transcode_data.items() if key in TranscodeConfig.__dataclass_fields__}
