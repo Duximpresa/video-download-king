@@ -2,6 +2,8 @@
 
 面向 Windows 11 的中文桌面视频下载器。第一版围绕 `yt-dlp.exe` 实现 YouTube 单视频分析和下载，并使用 FFmpeg 自动输出兼容的 H.264 + AAC MP4。
 
+项目维护与智能体交接参见 [AGENTS.md](AGENTS.md)，逐版本变更参见 [CHANGELOG.md](CHANGELOG.md)。
+
 ## 第一版功能
 
 - YouTube 单链接分析与下载
