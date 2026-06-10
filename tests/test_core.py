@@ -7,7 +7,7 @@ import pytest
 
 from video_download_king.config import AppSettings, SettingsStore
 from video_download_king.formats import format_selector
-from video_download_king.models import DownloadRequest, ProxyConfig
+from video_download_king.models import DownloadRequest, MediaInfo, ProxyConfig, SubtitleSelection
 from video_download_king.platforms import detect_platform, validate_first_version_url
 from video_download_king.utils import (
     render_filename_template,
@@ -17,7 +17,7 @@ from video_download_king.utils import (
     unique_media_stem,
     unique_path,
 )
-from video_download_king.ytdlp import YtDlpService
+from video_download_king.ytdlp import DownloadProgressTracker, PROGRESS_RE, YtDlpService
 
 
 def request(**kwargs) -> DownloadRequest:
@@ -97,19 +97,37 @@ def test_filename_and_unique_path(tmp_path: Path) -> None:
 
 def test_settings_round_trip_omits_password(tmp_path: Path) -> None:
     store = SettingsStore(tmp_path / "settings.json")
-    settings = AppSettings(save_path="媒体", proxy=ProxyConfig("http", "localhost", 8080, "u", "secret"))
+    settings = AppSettings(
+        save_path="媒体",
+        proxy=ProxyConfig("http", "localhost", 8080, "u", "secret"),
+        subtitle_format="vtt",
+        show_all_automatic_subtitles=True,
+    )
     store.save(settings)
     raw = json.loads(store.path.read_text(encoding="utf-8"))
     assert raw["proxy"]["password"] == ""
     loaded = store.load()
     assert loaded.save_path == "媒体"
     assert loaded.proxy.host == "localhost"
+    assert loaded.subtitle_format == "vtt"
+    assert loaded.show_all_automatic_subtitles
 
 
 def test_old_video_mode_is_migrated(tmp_path: Path) -> None:
     path = tmp_path / "settings.json"
     path.write_text(json.dumps({"output_mode": "video"}), encoding="utf-8")
     assert SettingsStore(path).load().output_mode == "video_audio"
+
+
+def test_old_subtitle_settings_load_without_preselection(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(
+        json.dumps({"download_subtitles": True, "subtitle_languages": "zh.*,en.*"}),
+        encoding="utf-8",
+    )
+    settings = SettingsStore(path).load()
+    assert settings.download_subtitles
+    assert settings.subtitle_format == "srt"
 
 
 def test_old_embed_thumbnail_setting_is_ignored(tmp_path: Path) -> None:
@@ -148,16 +166,74 @@ def test_download_options_for_sidecars_and_naming(tmp_path: Path) -> None:
         media_channel="频道",
         filename_template="{title}-{channel}-{id}",
         download_thumbnail=True,
-        download_subtitles=True,
-        subtitle_languages="zh.*,en.*",
-        use_automatic_subtitles=True,
+        subtitle_selections=[SubtitleSelection("en", "manual"), SubtitleSelection("zh-Hans", "automatic")],
+        subtitle_format="srt",
     )
     args = YtDlpService().build_download_args(req, tmp_path)
     assert "--write-thumbnail" in args
-    assert "--write-auto-subs" in args
-    assert "--write-subs" not in args
-    assert "--convert-subs" in args
+    assert "--progress" in args
     assert any("标题-频道-abc" in item for item in args)
+    commands = YtDlpService.build_subtitle_commands(req, str(tmp_path / "video.%(ext)s"))
+    assert len(commands) == 2
+    manual = commands[0][1]
+    automatic = commands[1][1]
+    assert "--write-subs" in manual and "en" in manual
+    assert "--write-auto-subs" in automatic and "zh-Hans" in automatic
+    assert "--convert-subs" in manual and "--convert-subs" in automatic
+
+
+def test_vtt_subtitle_command_does_not_convert(tmp_path: Path) -> None:
+    req = request(
+        subtitle_selections=[SubtitleSelection("ja", "manual")],
+        subtitle_format="vtt",
+    )
+    command = YtDlpService.build_subtitle_commands(req, str(tmp_path / "video.%(ext)s"))[0][1]
+    assert "--sub-format" in command
+    assert "vtt/best" in command
+    assert "--convert-subs" not in command
+
+
+def test_subtitle_options_are_grouped() -> None:
+    media = MediaInfo.from_json(
+        {
+            "id": "x",
+            "title": "x",
+            "subtitles": {"en": [{"ext": "vtt", "name": "English"}]},
+            "automatic_captions": {
+                "en": [{"ext": "vtt"}],
+                "zh-Hans": [{"ext": "vtt", "name": "Chinese (Simplified)"}],
+            },
+        }
+    )
+    assert [(item.language, item.kind) for item in media.subtitle_options] == [
+        ("en", "manual"),
+        ("en", "automatic"),
+        ("zh-Hans", "automatic"),
+    ]
+
+
+def test_download_progress_tracks_two_streams_without_going_backwards() -> None:
+    tracker = DownloadProgressTracker(expected_streams=2)
+    lines = [
+        "__VDK_PROGRESS__100.0%|1MiB/s|00:00|10MiB|100|100|NA|137",
+        "__VDK_PROGRESS__ 10.0%|1MiB/s|00:09|5MiB|10|100|NA|140",
+        "__VDK_PROGRESS__100.0%|1MiB/s|00:00|5MiB|100|100|NA|140",
+    ]
+    progress = [tracker.update(PROGRESS_RE.match(line)) for line in lines]
+    totals = [item.total_percent for item in progress]
+    assert totals == sorted(totals)
+    assert totals[-1] == 100
+    assert progress[1].stage_percent == 10
+    assert progress[1].current_item == "格式 140"
+
+
+def test_download_progress_handles_unknown_total() -> None:
+    tracker = DownloadProgressTracker(expected_streams=1)
+    progress = tracker.update(
+        PROGRESS_RE.match("__VDK_PROGRESS__ 25.0%|1MiB/s|00:03|NA|25|NA|NA|22")
+    )
+    assert progress.total_percent == 25
+    assert progress.total_bytes is None
 
 
 def test_cover_only_command_has_no_media_format_args(tmp_path: Path) -> None:

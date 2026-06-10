@@ -85,6 +85,20 @@ class FormatInfo:
         return cls(**{key: data.get(key) for key in fields if key in data})
 
 
+@dataclass(slots=True, frozen=True)
+class SubtitleInfo:
+    language: str
+    name: str
+    kind: Literal["manual", "automatic"]
+    formats: tuple[str, ...] = ()
+
+
+@dataclass(slots=True, frozen=True)
+class SubtitleSelection:
+    language: str
+    kind: Literal["manual", "automatic"]
+
+
 @dataclass(slots=True)
 class MediaInfo:
     webpage_url: str
@@ -100,6 +114,16 @@ class MediaInfo:
     subtitles: dict[str, Any] = field(default_factory=dict)
     automatic_captions: dict[str, Any] = field(default_factory=dict)
     formats: list[FormatInfo] = field(default_factory=list)
+
+    @property
+    def subtitle_options(self) -> list[SubtitleInfo]:
+        options: list[SubtitleInfo] = []
+        for kind, source in (("manual", self.subtitles), ("automatic", self.automatic_captions)):
+            for language, entries in source.items():
+                formats = tuple(dict.fromkeys(item.get("ext", "") for item in entries if item.get("ext")))
+                name = next((item.get("name", "") for item in entries if item.get("name")), "") or language
+                options.append(SubtitleInfo(language, name, kind, formats))
+        return sorted(options, key=lambda item: (item.kind != "manual", item.language.lower()))
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> "MediaInfo":
@@ -146,16 +170,23 @@ class DownloadRequest:
     download_subtitles: bool = False
     subtitle_languages: str = "zh-Hans,zh.*,en.*"
     use_automatic_subtitles: bool = False
+    subtitle_selections: list[SubtitleSelection] = field(default_factory=list)
+    subtitle_format: Literal["srt", "vtt"] = "srt"
     transcode: TranscodeConfig = field(default_factory=TranscodeConfig)
 
 
 @dataclass(slots=True)
 class TaskProgress:
     stage: str
-    percent: float | None = None
+    total_percent: float | None = None
+    stage_percent: float | None = None
+    stage_indeterminate: bool = False
+    current_item: str = ""
     speed: str = ""
     eta: str = ""
     total: str = ""
+    downloaded_bytes: int | None = None
+    total_bytes: int | None = None
     message: str = ""
 
 

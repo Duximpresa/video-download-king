@@ -69,22 +69,47 @@ class DownloadWorker(QObject):
             output_dir = self.request.output_dir
             if self.request.classify_by_platform:
                 output_dir = output_dir / platform
-            self.progress.emit(TaskProgress(stage="准备", percent=0, message="正在准备下载"))
+            use_transcode = (
+                self.request.transcode.enabled
+                and self.request.mode not in {"audio", "video_only", "cover"}
+            )
+            media_end = 70.0 if use_transcode else 85.0
+            post_end = 80.0 if use_transcode else 100.0
+            self.progress.emit(TaskProgress(stage="准备", total_percent=0, stage_percent=0, message="正在准备下载"))
+
+            def download_progress(progress: TaskProgress) -> None:
+                if progress.stage == "下载":
+                    raw = progress.total_percent or 0
+                    progress.total_percent = raw / 100 * media_end
+                elif progress.stage == "合并":
+                    progress.total_percent = media_end
+                else:
+                    raw = progress.total_percent or 0
+                    progress.total_percent = media_end + raw / 100 * (post_end - media_end)
+                self.progress.emit(progress)
+
             artifacts = self.downloader.download(
                 self.request,
                 output_dir,
-                self.progress.emit,
+                download_progress,
                 self.log.emit,
             )
             source = artifacts.media_path
             result_path = source
-            if source and self.request.transcode.enabled and self.request.mode not in {"audio", "video_only", "cover"}:
-                self.progress.emit(TaskProgress(stage="检测", percent=0, message="正在检查媒体编码"))
+            if source and use_transcode:
+                self.progress.emit(
+                    TaskProgress(stage="检测", total_percent=post_end, stage_indeterminate=True, message="正在检查媒体编码")
+                )
+                def transcode_progress(progress: TaskProgress) -> None:
+                    stage_percent = progress.stage_percent or 0
+                    progress.total_percent = post_end + stage_percent / 100 * (100 - post_end)
+                    self.progress.emit(progress)
+
                 try:
                     result_path = self.transcoder.convert(
                         source,
                         self.request.transcode,
-                        self.progress.emit,
+                        transcode_progress,
                         self.log.emit,
                     )
                 except HardwareEncodingError as exc:
@@ -98,13 +123,13 @@ class DownloadWorker(QObject):
                     result_path = self.transcoder.convert(
                         source,
                         self.request.transcode,
-                        self.progress.emit,
+                        transcode_progress,
                         self.log.emit,
                     )
             if source and result_path:
                 artifacts.cover_paths = self._rename_sidecars(source, result_path, artifacts.cover_paths)
                 artifacts.subtitle_paths = self._rename_sidecars(source, result_path, artifacts.subtitle_paths)
-            self.progress.emit(TaskProgress(stage="完成", percent=100))
+            self.progress.emit(TaskProgress(stage="完成", total_percent=100, stage_percent=100))
             output_files = [
                 path
                 for path in [result_path, *artifacts.cover_paths, *artifacts.subtitle_paths]

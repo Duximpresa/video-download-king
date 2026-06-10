@@ -24,6 +24,8 @@ class AppSettings:
     download_thumbnail: bool = False
     download_subtitles: bool = False
     subtitle_languages: str = "zh-Hans,zh.*,en.*"
+    subtitle_format: str = "srt"
+    show_all_automatic_subtitles: bool = False
     transcode: TranscodeConfig = field(default_factory=TranscodeConfig)
 
     @property
@@ -57,6 +59,8 @@ class SettingsStore:
                 download_thumbnail=bool(data.get("download_thumbnail", False)),
                 download_subtitles=bool(data.get("download_subtitles", False)),
                 subtitle_languages=data.get("subtitle_languages", "zh-Hans,zh.*,en.*"),
+                subtitle_format=data.get("subtitle_format", "srt"),
+                show_all_automatic_subtitles=bool(data.get("show_all_automatic_subtitles", False)),
                 transcode=TranscodeConfig(
                     **{key: value for key, value in transcode_data.items() if key in TranscodeConfig.__dataclass_fields__}
                 ),

@@ -361,7 +361,7 @@ class FFmpegService:
                 if (line.startswith("out_time_us=") or line.startswith("out_time_ms=")) and duration_us:
                     try:
                         percent = min(100.0, float(line.split("=", 1)[1]) / duration_us * 100)
-                        on_progress(TaskProgress(stage="转码", percent=percent))
+                        on_progress(TaskProgress(stage="转码", stage_percent=percent))
                     except ValueError:
                         pass
                 elif line.startswith("progress="):

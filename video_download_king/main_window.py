@@ -34,11 +34,21 @@ from PySide6.QtWidgets import (
 
 from .config import AppSettings, SettingsStore
 from .formats import audio_formats, video_formats
-from .models import DownloadRequest, FormatInfo, MediaInfo, ProxyConfig, TaskProgress, TaskResult, TranscodeConfig
+from .models import (
+    DownloadRequest,
+    FormatInfo,
+    MediaInfo,
+    ProxyConfig,
+    SubtitleSelection,
+    TaskProgress,
+    TaskResult,
+    TranscodeConfig,
+)
 from .paths import deno_path, ffmpeg_path, ffprobe_path, yt_dlp_path
 from .settings_dialog import SettingsDialog
+from .subtitle_dialog import SubtitleDialog
 from .transcode import FFmpegService
-from .utils import has_matching_language, human_size, render_filename_template
+from .utils import human_size, render_filename_template
 from .workers import AnalyzeWorker, DownloadWorker
 from . import __version__
 
@@ -52,6 +62,7 @@ class MainWindow(QMainWindow):
         self.first_run = not self.store.path.exists()
         self.settings = self.store.load()
         self.media: MediaInfo | None = None
+        self.subtitle_selections: list[SubtitleSelection] = []
         self.thread: QThread | None = None
         self.worker = None
         self.network = QNetworkAccessManager(self)
@@ -149,13 +160,20 @@ class MainWindow(QMainWindow):
         self.cancel_button.clicked.connect(self._cancel)
         self.open_folder_button = QPushButton("打开保存目录")
         self.open_folder_button.clicked.connect(self._open_output)
-        self.progress = QProgressBar()
-        self.progress.setRange(0, 100)
-        self.progress.setValue(0)
+        self.total_progress = QProgressBar()
+        self.total_progress.setRange(0, 100)
+        self.total_progress.setValue(0)
+        self.total_progress.setFormat("总任务 %p%")
+        self.stage_progress = QProgressBar()
+        self.stage_progress.setRange(0, 100)
+        self.stage_progress.setValue(0)
+        self.stage_progress.setFormat("当前阶段 %p%")
+        self.progress = self.total_progress
         controls.addWidget(self.download_button)
         controls.addWidget(self.cancel_button)
         controls.addWidget(self.open_folder_button)
-        controls.addWidget(self.progress, 1)
+        controls.addWidget(self.total_progress, 1)
+        controls.addWidget(self.stage_progress, 1)
         root.addLayout(controls)
 
         self.progress_label = QLabel("就绪")
@@ -243,14 +261,14 @@ class MainWindow(QMainWindow):
         layout.addLayout(fields, 1, 0, 1, 3)
 
         self.download_thumbnail_check = QCheckBox("下载封面")
-        self.download_subtitles_check = QCheckBox("下载字幕")
-        self.download_subtitles_check.toggled.connect(self._mode_changed)
-        self.subtitle_languages = QLineEdit("zh-Hans,zh.*,en.*")
-        self.subtitle_languages.setPlaceholderText("字幕语言")
+        self.subtitle_button = QPushButton("选择字幕...")
+        self.subtitle_button.setEnabled(False)
+        self.subtitle_button.clicked.connect(self._select_subtitles)
+        self.subtitle_summary = QLabel("未选择字幕")
         extras = QHBoxLayout()
         extras.addWidget(self.download_thumbnail_check)
-        extras.addWidget(self.download_subtitles_check)
-        extras.addWidget(self.subtitle_languages)
+        extras.addWidget(self.subtitle_button)
+        extras.addWidget(self.subtitle_summary, 1)
         layout.addLayout(extras, 1, 3, 1, 2)
 
         self.filename_preview = QLabel("预览：等待分析")
@@ -355,8 +373,6 @@ class MainWindow(QMainWindow):
         self.mode_combo.setCurrentIndex(max(0, self.mode_combo.findData(self.settings.output_mode)))
         self.filename_template.setText(self.settings.filename_template)
         self.download_thumbnail_check.setChecked(self.settings.download_thumbnail)
-        self.download_subtitles_check.setChecked(self.settings.download_subtitles)
-        self.subtitle_languages.setText(self.settings.subtitle_languages)
         tc = self.settings.transcode
         self.transcode_check.setChecked(tc.enabled)
         self.keep_source_check.setChecked(tc.keep_source)
@@ -420,6 +436,40 @@ class MainWindow(QMainWindow):
         if path:
             self.path_edit.setText(path)
 
+    def _select_subtitles(self) -> None:
+        if not self.media:
+            return
+        dialog = SubtitleDialog(
+            self.media.subtitle_options,
+            self.subtitle_selections,
+            self.settings.subtitle_format,
+            self.settings.show_all_automatic_subtitles,
+            self,
+        )
+        if dialog.exec():
+            self.subtitle_selections = dialog.selections()
+            self.settings.subtitle_format = dialog.subtitle_format()
+            self.settings.show_all_automatic_subtitles = dialog.show_all_automatic()
+            self._update_subtitle_summary()
+
+    def _update_subtitle_summary(self) -> None:
+        if not self.media:
+            self.subtitle_summary.setText("请先分析视频")
+            return
+        if not self.media.subtitle_options:
+            self.subtitle_summary.setText("该视频没有可用字幕")
+            return
+        if not self.subtitle_selections:
+            self.subtitle_summary.setText(
+                f"未选择（人工 {len(self.media.subtitles)}，自动 {len(self.media.automatic_captions)}）"
+            )
+            return
+        labels = [
+            f"{item.language}（{'人工' if item.kind == 'manual' else '自动'}）"
+            for item in self.subtitle_selections
+        ]
+        self.subtitle_summary.setText(f"{', '.join(labels)} · {self.settings.subtitle_format.upper()}")
+
     def _open_output(self) -> None:
         path = Path(self.path_edit.text()).expanduser()
         path.mkdir(parents=True, exist_ok=True)
@@ -480,15 +530,9 @@ class MainWindow(QMainWindow):
             cookie_browser=self.settings.cookie_browser,
             timeout=self.settings.timeout,
             download_thumbnail=self.download_thumbnail_check.isChecked() or self.mode_combo.currentData() == "cover",
-            download_subtitles=self.download_subtitles_check.isChecked() and self.mode_combo.currentData() != "cover",
-            subtitle_languages=self.subtitle_languages.text().strip() or "zh-Hans,zh.*,en.*",
-            use_automatic_subtitles=bool(
-                self.media
-                and not has_matching_language(
-                    set(self.media.subtitles),
-                    self.subtitle_languages.text().strip() or "zh-Hans,zh.*,en.*",
-                )
-            ),
+            download_subtitles=bool(self.subtitle_selections) and self.mode_combo.currentData() != "cover",
+            subtitle_selections=list(self.subtitle_selections),
+            subtitle_format=self.settings.subtitle_format,
             transcode=transcode,
         )
 
@@ -544,6 +588,9 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "无法分析", str(exc))
             return
         self.media = None
+        self.subtitle_selections = []
+        self.subtitle_button.setEnabled(False)
+        self._update_subtitle_summary()
         self.download_button.setEnabled(False)
         self._set_busy(True, "正在分析链接...")
         worker = AnalyzeWorker(request)
@@ -615,9 +662,13 @@ class MainWindow(QMainWindow):
         )
         self._populate_table(self.video_table, video_formats(media.formats))
         self._populate_table(self.audio_table, audio_formats(media.formats), allow_none=True)
+        self.subtitle_button.setEnabled(bool(media.subtitle_options) and self.mode_combo.currentData() != "cover")
+        self._update_subtitle_summary()
         self.download_button.setEnabled(True)
         self.progress_label.setText(f"分析完成，共 {len(media.formats)} 个格式")
-        self.progress.setValue(0)
+        self.total_progress.setValue(0)
+        self.stage_progress.setRange(0, 100)
+        self.stage_progress.setValue(0)
         self._update_filename_preview()
         if media.thumbnail:
             reply = self.network.get(QNetworkRequest(QUrl(media.thumbnail)))
@@ -663,7 +714,9 @@ class MainWindow(QMainWindow):
 
     def _download_complete(self, result: TaskResult) -> None:
         if result.success:
-            self.progress.setValue(100)
+            self.total_progress.setValue(100)
+            self.stage_progress.setRange(0, 100)
+            self.stage_progress.setValue(100)
             files = result.output_files or ([result.output_path] if result.output_path else [])
             self.progress_label.setText(f"完成：{files[0] if files else '任务完成'}")
             listing = "\n".join(str(path) for path in files)
@@ -678,9 +731,27 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, f"下载失败：{result.error_category}", result.message)
 
     def _update_progress(self, progress: TaskProgress) -> None:
-        if progress.percent is not None:
-            self.progress.setValue(max(0, min(100, int(progress.percent))))
-        details = "  ".join(value for value in (progress.speed, progress.total, f"ETA {progress.eta}" if progress.eta else "") if value)
+        if progress.total_percent is not None:
+            self.total_progress.setValue(max(0, min(100, int(progress.total_percent))))
+        if progress.stage_indeterminate:
+            self.stage_progress.setRange(0, 0)
+            self.stage_progress.setFormat(f"{progress.stage}...")
+        else:
+            if self.stage_progress.maximum() == 0:
+                self.stage_progress.setRange(0, 100)
+            if progress.stage_percent is not None:
+                self.stage_progress.setValue(max(0, min(100, int(progress.stage_percent))))
+            self.stage_progress.setFormat(f"{progress.stage} %p%")
+        details = "  ".join(
+            value
+            for value in (
+                progress.current_item,
+                progress.speed,
+                progress.total,
+                f"ETA {progress.eta}" if progress.eta and progress.eta != "NA" else "",
+            )
+            if value
+        )
         self.progress_label.setText(f"{progress.stage} {details or progress.message}".strip())
 
     def _append_log(self, text: str) -> None:
@@ -704,8 +775,7 @@ class MainWindow(QMainWindow):
         self.transcode_panel.setEnabled(not cover_only)
         self.transcode_check.setEnabled(mode not in {"audio", "video_only", "cover"})
         self.download_thumbnail_check.setEnabled(not cover_only)
-        self.download_subtitles_check.setEnabled(not cover_only)
-        self.subtitle_languages.setEnabled(not cover_only and self.download_subtitles_check.isChecked())
+        self.subtitle_button.setEnabled(not cover_only and bool(self.media and self.media.subtitle_options))
         self.download_thumbnail_check.setText("仅封面模式自动下载" if cover_only else "下载封面")
         self._update_filename_preview()
 
@@ -754,8 +824,7 @@ class MainWindow(QMainWindow):
         self.settings.output_mode = self.mode_combo.currentData()
         self.settings.filename_template = self.filename_template.text().strip() or "{title} [{id}]"
         self.settings.download_thumbnail = self.download_thumbnail_check.isChecked()
-        self.settings.download_subtitles = self.download_subtitles_check.isChecked()
-        self.settings.subtitle_languages = self.subtitle_languages.text().strip() or "zh-Hans,zh.*,en.*"
+        self.settings.download_subtitles = bool(self.subtitle_selections)
         audio_rate = self.audio_custom.value() or self.audio_bitrate.currentData() or None
         self.settings.transcode = TranscodeConfig(
             enabled=self.transcode_check.isChecked(),

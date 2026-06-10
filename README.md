@@ -1,4 +1,4 @@
-# Video Download King 0.3.0
+# Video Download King 0.4.0
 
 面向 Windows 11 的中文桌面视频下载器。第一版围绕 `yt-dlp.exe` 实现 YouTube 单视频分析和下载，并使用 FFmpeg 自动输出兼容的 H.264 + AAC MP4。
 
@@ -17,6 +17,8 @@
 - 按源视频实际码率自动设置转码码率
 - 视频标题、ID、频道、平台和日期自定义命名
 - 独立封面下载模式，以及可选封面、字幕附属文件下载
+- 总任务与当前阶段双进度条，显示下载流、速度、大小和 ETA
+- 分析后按人工/自动来源选择字幕，支持多选及 SRT/VTT
 - 编码感知的 H.264 自动码率与未知编码体积保护
 - 自动编码后缀或自定义转码文件后缀
 - H.264 + AAC 文件直接保留，兼容流重封装，不兼容流按需转码
@@ -52,13 +54,13 @@ Deno 是 yt-dlp 官方推荐的 YouTube JavaScript 挑战运行时，程序会�
 ## 构建便携版
 
 ```powershell
-.\build_release.ps1 -Version 0.3.0
+.\build_release.ps1 -Version 0.4.0
 ```
 
 脚本会先运行测试，再使用 PyInstaller 生成目录版程序，并创建：
 
 ```text
-release/VideoDownloadKing-v0.3.0-Windows-x64.zip
+release/VideoDownloadKing-v0.4.0-Windows-x64.zip
 ```
 
 ## 使用说明
@@ -66,7 +68,7 @@ release/VideoDownloadKing-v0.3.0-Windows-x64.zip
 1. 输入 YouTube 单视频链接并点击“分析链接”。
 2. 选择“视频+音频”“仅视频”“仅音频”“仅封面”或“高级流组合”。
 3. 可使用 `{title}`、`{id}`、`{channel}`、`{platform}`、`{upload_date}`、`{download_date}` 自定义文件名。
-4. 按需勾选下载封面或下载字幕；也可选择“仅封面”模式。默认字幕语言为 `zh-Hans,zh.*,en.*`。
+4. 分析完成后点击“选择字幕”，可搜索并多选人工或自动字幕，同时选择 SRT/VTT 输出格式。
 5. 兼容 MP4 区域可选择 CPU 或 GPU。GPU 厂商必须通过启动时实际编码检测才可选择。
 6. 自动码率按源编码与 CPU/GPU 类型补偿；未知编码使用质量模式和码率上限保护。转码文件默认追加 `_H264_AAC`。
 7. 点击“开始下载”。若用户选择的 GPU 在实际视频上失败，程序会询问是否使用 CPU 继续。
