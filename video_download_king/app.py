@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from .main_window import MainWindow
@@ -35,8 +36,11 @@ def run() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("Video Download King")
     app.setOrganizationName("Video Download King")
-    check_icon = (Path(__file__).resolve().parent / "assets" / "check.svg").as_posix()
+    assets_dir = Path(__file__).resolve().parent / "assets"
+    app.setWindowIcon(QIcon(str(assets_dir / "logo-512.png")))
+    check_icon = (assets_dir / "check.svg").as_posix()
     app.setStyleSheet(STYLE.replace("__CHECK_ICON__", check_icon))
     window = MainWindow()
+    window.setWindowIcon(app.windowIcon())
     window.show()
     return app.exec()
