@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
 )
 
 from .config import AppSettings, SettingsStore
+from .douyin_page import DouyinPage
 from .formats import audio_formats, video_formats
 from .models import (
     DownloadRequest,
@@ -42,12 +43,12 @@ from .models import (
     SubtitleSelection,
     TaskProgress,
     TaskResult,
-    TranscodeConfig,
 )
 from .paths import deno_path, ffmpeg_path, ffprobe_path, yt_dlp_path
 from .settings_dialog import SettingsDialog
 from .subtitle_dialog import SubtitleDialog
 from .transcode import FFmpegService
+from .transcode_panel import TranscodePanel
 from .utils import human_size, render_filename_template
 from .workers import AnalyzeWorker, DownloadWorker
 from . import __version__
@@ -78,7 +79,7 @@ class MainWindow(QMainWindow):
 
     def _build_menu(self) -> None:
         menu = self.menuBar().addMenu("设置")
-        action = QAction("网络与 YouTube 登录...", self)
+        action = QAction("网络与平台登录...", self)
         action.triggered.connect(self._open_settings)
         menu.addAction(action)
         help_menu = self.menuBar().addMenu("帮助")
@@ -95,6 +96,8 @@ class MainWindow(QMainWindow):
     def _build_ui(self) -> None:
         tabs = QTabWidget()
         tabs.addTab(self._build_single_tab(), "单链接下载")
+        self.douyin_page = DouyinPage(self.settings, self.store, self)
+        tabs.addTab(self.douyin_page, "抖音下载")
         tabs.addTab(self._build_batch_tab(), "批量下载")
         self.setCentralWidget(tabs)
         self.statusBar().showMessage("就绪")
@@ -293,69 +296,22 @@ class MainWindow(QMainWindow):
         return table
 
     def _build_transcode_panel(self) -> QWidget:
-        group = QGroupBox("兼容 MP4")
-        layout = QVBoxLayout(group)
-        self.transcode_check = QCheckBox("自动生成 H.264 + AAC 的 MP4")
-        self.keep_source_check = QCheckBox("成功后保留原始下载文件")
-        layout.addWidget(self.transcode_check)
-        layout.addWidget(self.keep_source_check)
-        form = QFormLayout()
-        self.processor_combo = QComboBox()
-        self.processor_combo.addItem("CPU", "cpu")
-        self.processor_combo.addItem("GPU", "gpu")
-        self.processor_combo.currentIndexChanged.connect(self._processor_changed)
-        self.vendor_combo = QComboBox()
-        self.vendor_combo.addItem("NVIDIA NVENC", "nvidia")
-        self.vendor_combo.addItem("Intel QSV", "intel")
-        self.vendor_combo.addItem("AMD AMF", "amd")
-        self.rate_mode = QComboBox()
-        self.rate_mode.addItem("自动", "auto")
-        self.rate_mode.addItem("恒定质量", "quality")
-        self.rate_mode.addItem("目标码率", "bitrate")
-        self.rate_mode.currentIndexChanged.connect(self._rate_mode_changed)
-        self.quality_spin = QSpinBox()
-        self.quality_spin.setButtonSymbols(QSpinBox.NoButtons)
-        self.quality_spin.setRange(0, 51)
-        self.quality_spin.setValue(23)
-        self.video_bitrate = QSpinBox()
-        self.video_bitrate.setButtonSymbols(QSpinBox.NoButtons)
-        self.video_bitrate.setRange(0, 100000)
-        self.video_bitrate.setSpecialValueText("自动")
-        self.video_bitrate.setSuffix(" kbps")
-        self.audio_bitrate = QComboBox()
-        self.audio_bitrate.addItem("自动", 0)
-        for value in (96, 128, 192, 256, 320):
-            self.audio_bitrate.addItem(f"{value} kbps", value)
-        self.audio_custom = QSpinBox()
-        self.audio_custom.setButtonSymbols(QSpinBox.NoButtons)
-        self.audio_custom.setRange(0, 512)
-        self.audio_custom.setSpecialValueText("使用上方选项")
-        self.audio_custom.setSuffix(" kbps")
-        self.suffix_mode = QComboBox()
-        self.suffix_mode.addItem("自动编码后缀", "auto")
-        self.suffix_mode.addItem("自定义后缀", "custom")
-        self.suffix_mode.addItem("不追加后缀", "none")
-        self.suffix_mode.currentIndexChanged.connect(self._suffix_mode_changed)
-        self.custom_suffix = QLineEdit()
-        self.custom_suffix.setPlaceholderText("例如：_兼容版")
-        form.addRow("转码处理器", self.processor_combo)
-        form.addRow("GPU 厂商", self.vendor_combo)
-        form.addRow("视频控制", self.rate_mode)
-        form.addRow("质量值 (0-51)", self.quality_spin)
-        form.addRow("视频码率", self.video_bitrate)
-        form.addRow("音频码率", self.audio_bitrate)
-        form.addRow("自定义音频码率", self.audio_custom)
-        form.addRow("文件后缀", self.suffix_mode)
-        form.addRow("自定义后缀", self.custom_suffix)
-        layout.addLayout(form)
-        note = QLabel("自动检测 NVIDIA NVENC、Intel QSV、AMD AMF；实际转码失败时询问是否回退 CPU。")
-        note.setWordWrap(True)
-        note.setStyleSheet("color:#687386")
-        layout.addWidget(note)
-        layout.addStretch()
-        self._rate_mode_changed()
-        self._suffix_mode_changed()
-        return group
+        panel = TranscodePanel()
+        self._bind_transcode_panel(panel)
+        return panel
+
+    def _bind_transcode_panel(self, panel: TranscodePanel) -> None:
+        self.transcode_check = panel.transcode_check
+        self.keep_source_check = panel.keep_source_check
+        self.processor_combo = panel.processor_combo
+        self.vendor_combo = panel.vendor_combo
+        self.rate_mode = panel.rate_mode
+        self.quality_spin = panel.quality_spin
+        self.video_bitrate = panel.video_bitrate
+        self.audio_bitrate = panel.audio_bitrate
+        self.audio_custom = panel.audio_custom
+        self.suffix_mode = panel.suffix_mode
+        self.custom_suffix = panel.custom_suffix
 
     @staticmethod
     def _build_batch_tab() -> QWidget:
@@ -373,19 +329,7 @@ class MainWindow(QMainWindow):
         self.mode_combo.setCurrentIndex(max(0, self.mode_combo.findData(self.settings.output_mode)))
         self.filename_template.setText(self.settings.filename_template)
         self.download_thumbnail_check.setChecked(self.settings.download_thumbnail)
-        tc = self.settings.transcode
-        self.transcode_check.setChecked(tc.enabled)
-        self.keep_source_check.setChecked(tc.keep_source)
-        self.rate_mode.setCurrentIndex(max(0, self.rate_mode.findData(tc.rate_mode)))
-        self.quality_spin.setValue(tc.quality)
-        self.video_bitrate.setValue(tc.video_bitrate_kbps or 0)
-        self.audio_bitrate.setCurrentIndex(max(0, self.audio_bitrate.findData(tc.audio_bitrate_kbps or 0)))
-        self.processor_combo.setCurrentIndex(max(0, self.processor_combo.findData(tc.processor)))
-        self.vendor_combo.setCurrentIndex(max(0, self.vendor_combo.findData(tc.hardware_vendor)))
-        self.suffix_mode.setCurrentIndex(max(0, self.suffix_mode.findData(tc.suffix_mode)))
-        self.custom_suffix.setText(tc.custom_suffix)
-        self._processor_changed()
-        self._suffix_mode_changed()
+        self.transcode_panel.load_config(self.settings.transcode)
         self._update_filename_preview()
 
     def _check_runtime(self) -> None:
@@ -400,28 +344,21 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("正在检测硬件编码器...")
         QApplication.processEvents()
         self.hardware_availability = FFmpegService().detect_encoders(self._append_log)
-        for index in range(self.vendor_combo.count()):
-            vendor = self.vendor_combo.itemData(index)
-            item = self.vendor_combo.model().item(index)
-            available = self.hardware_availability.get(vendor, False)
-            item.setEnabled(available)
-            self.vendor_combo.setItemText(
-                index,
-                {
-                    "nvidia": "NVIDIA NVENC",
-                    "intel": "Intel QSV",
-                    "amd": "AMD AMF",
-                }[vendor]
-                + ("" if available else "（不可用）"),
-            )
+        self.transcode_panel.set_available_hardware(self.hardware_availability)
+        self.douyin_page.transcode_panel.set_available_hardware(self.hardware_availability)
         if self.first_run and self.hardware_availability.get("nvidia"):
             self.processor_combo.setCurrentIndex(self.processor_combo.findData("gpu"))
             self.vendor_combo.setCurrentIndex(self.vendor_combo.findData("nvidia"))
+            self.douyin_page.transcode_panel.processor_combo.setCurrentIndex(
+                self.douyin_page.transcode_panel.processor_combo.findData("gpu")
+            )
+            self.douyin_page.transcode_panel.vendor_combo.setCurrentIndex(
+                self.douyin_page.transcode_panel.vendor_combo.findData("nvidia")
+            )
         elif self.processor_combo.currentData() == "gpu" and not self.hardware_availability.get(
             self.vendor_combo.currentData(), False
         ):
             self.processor_combo.setCurrentIndex(self.processor_combo.findData("cpu"))
-        self._processor_changed()
         self.statusBar().showMessage("就绪")
 
     def _open_settings(self) -> None:
@@ -492,20 +429,9 @@ class MainWindow(QMainWindow):
                 "upload_date": self.media.upload_date if self.media else "2026-01-01",
             },
         )
-        audio_rate = self.audio_custom.value() or self.audio_bitrate.currentData() or None
-        transcode = TranscodeConfig(
-            enabled=self.transcode_check.isChecked(),
-            keep_source=self.keep_source_check.isChecked(),
-            processor=self.processor_combo.currentData(),
-            hardware_vendor=self.vendor_combo.currentData(),
-            rate_mode=self.rate_mode.currentData(),
-            quality=self.quality_spin.value(),
-            video_bitrate_kbps=self.video_bitrate.value() or None,
-            audio_bitrate_kbps=audio_rate,
+        transcode = self.transcode_panel.to_config(
             source_video_bitrate_kbps=self._source_video_bitrate_hint(),
             source_video_codec=self._source_video_codec_hint(),
-            suffix_mode=self.suffix_mode.currentData(),
-            custom_suffix=self.custom_suffix.text(),
         )
         video_id = self._selected_format_id(self.video_table)
         audio_id = self._selected_format_id(self.audio_table)
@@ -773,7 +699,7 @@ class MainWindow(QMainWindow):
         cover_only = mode == "cover"
         self.format_panel.setEnabled(not cover_only)
         self.transcode_panel.setEnabled(not cover_only)
-        self.transcode_check.setEnabled(mode not in {"audio", "video_only", "cover"})
+        self.transcode_panel.set_transcode_allowed(mode not in {"audio", "video_only", "cover"})
         self.download_thumbnail_check.setEnabled(not cover_only)
         self.subtitle_button.setEnabled(not cover_only and bool(self.media and self.media.subtitle_options))
         self.download_thumbnail_check.setText("仅封面模式自动下载" if cover_only else "下载封面")
@@ -825,29 +751,19 @@ class MainWindow(QMainWindow):
         self.settings.filename_template = self.filename_template.text().strip() or "{title} [{id}]"
         self.settings.download_thumbnail = self.download_thumbnail_check.isChecked()
         self.settings.download_subtitles = bool(self.subtitle_selections)
-        audio_rate = self.audio_custom.value() or self.audio_bitrate.currentData() or None
-        self.settings.transcode = TranscodeConfig(
-            enabled=self.transcode_check.isChecked(),
-            keep_source=self.keep_source_check.isChecked(),
-            processor=self.processor_combo.currentData(),
-            hardware_vendor=self.vendor_combo.currentData(),
-            rate_mode=self.rate_mode.currentData(),
-            quality=self.quality_spin.value(),
-            video_bitrate_kbps=self.video_bitrate.value() or None,
-            audio_bitrate_kbps=audio_rate,
-            suffix_mode=self.suffix_mode.currentData(),
-            custom_suffix=self.custom_suffix.text(),
-        )
+        self.settings.transcode = self.transcode_panel.to_config()
         self.store.save(self.settings)
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        if self.thread:
+        if self.thread or self.douyin_page.is_busy():
             answer = QMessageBox.question(self, "任务运行中", "任务仍在运行，确定要取消并退出吗？")
             if answer != QMessageBox.Yes:
                 event.ignore()
                 return
-            self.cancel_requested.emit()
-            self.thread.quit()
-            self.thread.wait(3000)
+            if self.thread:
+                self.cancel_requested.emit()
+                self.thread.quit()
+                self.thread.wait(3000)
+            self.douyin_page.shutdown()
         self._save_ui_settings()
         event.accept()

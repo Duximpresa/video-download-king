@@ -1,17 +1,22 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QComboBox, QProgressBar, QSpinBox
+from PySide6.QtWidgets import QApplication, QComboBox, QProgressBar, QPushButton, QSpinBox
 
 from video_download_king.config import AppSettings
+from video_download_king.config import SettingsStore
+from video_download_king.douyin_page import DouyinPage
 from video_download_king.main_window import MainWindow
 from video_download_king.models import SubtitleInfo
 from video_download_king.settings_dialog import SettingsDialog
 from video_download_king.subtitle_dialog import SubtitleDialog
+from video_download_king.models import DouyinAsset, DouyinMediaInfo
+from video_download_king.transcode_panel import TranscodePanel
 
 
 def app() -> QApplication:
@@ -59,6 +64,72 @@ def test_main_window_has_two_progress_bars(monkeypatch) -> None:
     assert window.total_progress is not window.stage_progress
     assert len(window.findChildren(QProgressBar)) >= 2
     window.close()
+
+
+def test_main_window_has_douyin_page_and_gallery_forces_native(monkeypatch) -> None:
+    app()
+    monkeypatch.setattr(
+        "video_download_king.main_window.FFmpegService.detect_encoders",
+        lambda self, on_log=None: {"nvidia": False, "intel": False, "amd": False},
+    )
+    window = MainWindow()
+    page = window.douyin_page
+    assert page.engine_combo.currentData() == "native"
+    assert len(page.findChildren(QProgressBar)) == 2
+    page._analysis_complete(
+        DouyinMediaInfo(
+            "https://www.douyin.com/note/1",
+            "1",
+            "图集",
+            media_type="gallery",
+            gallery_assets=[DouyinAsset("image", ("https://example.com/1.jpg",), index=1)],
+        )
+    )
+    assert page.engine_combo.currentData() == "native"
+    assert not page.engine_combo.isEnabled()
+    assert not page.transcode_group.isEnabled()
+    window.close()
+
+
+def test_transcode_panel_is_shared_by_single_and_douyin_pages(monkeypatch) -> None:
+    app()
+    monkeypatch.setattr(
+        "video_download_king.main_window.FFmpegService.detect_encoders",
+        lambda self, on_log=None: {"nvidia": False, "intel": False, "amd": False},
+    )
+    window = MainWindow()
+    assert isinstance(window.transcode_panel, TranscodePanel)
+    assert isinstance(window.douyin_page.transcode_panel, TranscodePanel)
+    window.close()
+
+
+def test_douyin_author_classification_and_template_buttons(tmp_path: Path) -> None:
+    app()
+    settings = AppSettings(save_path=str(tmp_path), douyin_classify_by_author=True)
+    page = DouyinPage(settings, SettingsStore(tmp_path / "settings.json"))
+    page.url_edit.setText("https://www.douyin.com/video/7604129988555574538")
+    page._analysis_complete(
+        DouyinMediaInfo(
+            "https://www.douyin.com/video/7604129988555574538",
+            "7604129988555574538",
+            "测试作品",
+            author="作者",
+        )
+    )
+    assert page.classify_author_check.isChecked()
+    request = page._request()
+    assert request.classify_by_author
+
+    page.filename_template.clear()
+    author_button = next(button for button in page.findChildren(QPushButton) if button.text() == "作者")
+    author_button.click()
+    page.filename_template.insert("-{type}-{index}-{asset}")
+    page._update_preview()
+    assert "作者" in page.preview_label.text()
+    assert "01" in page.preview_label.text()
+    page._save_settings()
+    assert settings.douyin_classify_by_author
+    page.close()
 
 
 def test_subtitle_dialog_prioritizes_manual_for_same_language() -> None:

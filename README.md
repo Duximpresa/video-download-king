@@ -1,10 +1,15 @@
-# Video Download King 0.4.0
+# Video Download King 0.5.0
 
-面向 Windows 11 的中文桌面视频下载器。第一版围绕 `yt-dlp.exe` 实现 YouTube 单视频分析和下载，并使用 FFmpeg 自动输出兼容的 H.264 + AAC MP4。
+面向 Windows 11 的中文桌面视频下载器。支持 YouTube 单视频，以及抖音单视频和图集；视频可使用自研抖音引擎或 `yt-dlp`，并可通过 FFmpeg 输出兼容的 H.264 + AAC MP4。
 
 项目维护与智能体交接参见 [AGENTS.md](AGENTS.md)，逐版本变更参见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 第一版功能
+
+- 独立“抖音下载”页面，支持视频、图集、短链接和分享文本
+- 抖音视频可选择自研引擎或 `yt-dlp`，失败时询问是否切换
+- 自研引擎优先选择无水印高画质资源，并支持图集及实况片段
+- 抖音独立 Netscape `cookies.txt` 设置
 
 - YouTube 单链接分析与下载
 - 视频+音频、仅视频、仅音频和高级流组合
@@ -56,16 +61,23 @@ Deno 是 yt-dlp 官方推荐的 YouTube JavaScript 挑战运行时，程序会�
 ## 构建便携版
 
 ```powershell
-.\build_release.ps1 -Version 0.4.0
+.\build_release.ps1 -Version 0.5.0
 ```
 
 脚本会先运行测试，再使用 PyInstaller 生成目录版程序，并创建：
 
 ```text
-release/VideoDownloadKing-v0.4.0-Windows-x64.zip
+release/VideoDownloadKing-v0.5.0-Windows-x64.zip
 ```
 
 ## 使用说明
+
+抖音下载：
+
+1. 打开“抖音下载”页，粘贴视频/图集链接、短链接或分享文本。
+2. 视频默认使用自研引擎，也可切换为 `yt-dlp`；图集固定使用自研引擎。
+3. 选择画质、命名、封面和兼容 MP4 选项后开始下载。
+4. 风控或受限作品可在“设置 > 抖音登录”选择 Netscape `cookies.txt`。
 
 1. 输入 YouTube 单视频链接并点击“分析链接”。
 2. 选择“视频+音频”“仅视频”“仅音频”“仅封面”或“高级流组合”。
@@ -82,4 +94,4 @@ release/VideoDownloadKing-v0.4.0-Windows-x64.zip
 
 ## 暂不支持
 
-播放列表、直播、并发下载、字幕嵌入、批量任务和自动更新将在后续版本评估。
+播放列表、抖音主页/合集/音乐/直播、并发下载、字幕嵌入、批量任务和自动更新将在后续版本评估。

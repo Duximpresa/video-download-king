@@ -204,3 +204,49 @@ class DownloadArtifacts:
     media_path: Path | None
     cover_paths: list[Path] = field(default_factory=list)
     subtitle_paths: list[Path] = field(default_factory=list)
+
+
+@dataclass(slots=True, frozen=True)
+class DouyinAsset:
+    kind: Literal["video", "image", "live_photo", "cover"]
+    urls: tuple[str, ...]
+    index: int = 0
+    width: int | None = None
+    height: int | None = None
+    bitrate: int | None = None
+    codec: str = ""
+    extension: str = ""
+    watermarked: bool = False
+    uri: str = ""
+
+
+@dataclass(slots=True)
+class DouyinMediaInfo:
+    webpage_url: str
+    media_id: str
+    title: str
+    author: str = ""
+    upload_date: str = ""
+    duration: float | None = None
+    thumbnail: str = ""
+    media_type: Literal["video", "gallery"] = "video"
+    video_assets: list[DouyinAsset] = field(default_factory=list)
+    gallery_assets: list[DouyinAsset] = field(default_factory=list)
+    cover_asset: DouyinAsset | None = None
+
+
+@dataclass(slots=True)
+class DouyinDownloadRequest:
+    url: str
+    output_dir: Path
+    download_engine: Literal["native", "yt_dlp"] = "native"
+    quality: Literal["highest", "1080p", "720p", "540p", "lowest"] = "highest"
+    filename_template: str = "{title} [{id}]"
+    classify_by_platform: bool = True
+    classify_by_author: bool = False
+    cookie_file: str = ""
+    proxy: ProxyConfig = field(default_factory=ProxyConfig)
+    timeout: int = 30
+    download_thumbnail: bool = False
+    transcode: TranscodeConfig = field(default_factory=TranscodeConfig)
+    media: DouyinMediaInfo | None = None

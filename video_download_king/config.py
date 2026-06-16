@@ -18,6 +18,8 @@ class AppSettings:
     proxy: ProxyConfig = field(default_factory=ProxyConfig)
     cookie_file: str = ""
     cookie_browser: str = ""
+    douyin_cookie_file: str = ""
+    douyin_classify_by_author: bool = False
     timeout: int = 30
     output_mode: str = "video_audio"
     filename_template: str = "{title} [{id}]"
@@ -53,6 +55,8 @@ class SettingsStore:
                 proxy=ProxyConfig(**data.get("proxy", {})),
                 cookie_file=data.get("cookie_file", ""),
                 cookie_browser=data.get("cookie_browser", ""),
+                douyin_cookie_file=data.get("douyin_cookie_file", ""),
+                douyin_classify_by_author=bool(data.get("douyin_classify_by_author", False)),
                 timeout=int(data.get("timeout", 30)),
                 output_mode=mode,
                 filename_template=data.get("filename_template", "{title} [{id}]"),

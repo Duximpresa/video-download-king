@@ -2,10 +2,10 @@
 
 ## 项目概况
 
-Video Download King 是面向 64 位 Windows 11 的简体中文桌面视频下载器，当前版本为 `0.4.0`。
+Video Download King 是面向 64 位 Windows 11 的简体中文桌面视频下载器，当前版本为 `0.5.0`。
 
 - 技术栈：Python 3.12、PySide6、yt-dlp、FFmpeg、FFprobe、Deno、PyInstaller。
-- 当前平台范围：只开放 YouTube 单视频；批量页仅占位。
+- 当前平台范围：YouTube 单视频，以及抖音单视频/图集；批量页仅占位。
 - 发布形式：便携 ZIP，主程序和全部运行时放在同一目录。
 - 当前分支：`main`。
 - 版本历史：参见 `CHANGELOG.md`。
@@ -31,7 +31,7 @@ python -m pytest -q
 python -m compileall -q video_download_king tests
 
 # 构建发布包，版本号必须与代码版本一致
-.\build_release.ps1 -Version 0.4.0
+.\build_release.ps1 -Version 0.5.0
 ```
 
 发布脚本会运行测试、使用 PyInstaller 构建无控制台窗口的目录版程序，并生成：
@@ -49,6 +49,9 @@ video_download_king/
   main_window.py                主界面、UI 状态联动和 Qt 线程编排
   subtitle_dialog.py            人工/自动字幕搜索、多选和格式选择
   settings_dialog.py            代理、Cookie、网络超时设置
+  douyin_page.py                抖音专用页面和 UI 状态
+  douyin.py                     抖音接口、签名、资源选择和原子下载
+  douyin_workers.py             抖音双引擎后台任务与回退编排
   models.py                     稳定的数据模型和任务结果类型
   config.py                     config/settings.json 的加载、迁移和恢复
   ytdlp.py                      分析、下载、字幕/封面和进度解析

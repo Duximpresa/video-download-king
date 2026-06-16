@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "0.4.0"
+    [string]$Version = "0.5.0"
 )
 
 $ErrorActionPreference = "Stop"
@@ -27,6 +27,7 @@ foreach ($Item in $Required) {
 python -m pytest
 python -m PyInstaller --noconfirm --clean --windowed --name VideoDownloadKing `
     --icon "video_download_king\assets\logo.ico" `
+    --collect-all gmssl `
     --add-data "video_download_king\assets;video_download_king\assets" main.py
 
 $PackageName = "VideoDownloadKing-v$Version-Windows-x64"

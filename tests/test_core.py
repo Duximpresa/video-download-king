@@ -88,6 +88,13 @@ def test_filename_and_unique_path(tmp_path: Path) -> None:
         )
         == "测试 [abc] - 频道 - 2026-01-02"
     )
+    assert (
+        render_filename_template(
+            "{title}-{author}-{type}-{index}-{asset}",
+            {"title": "抖音", "channel": "作者", "type": "图集", "index": "03", "asset": "图片"},
+        )
+        == "抖音-作者-图集-03-图片"
+    )
     with pytest.raises(ValueError):
         render_filename_template("{unknown}", {})
     assert sanitize_suffix("兼容:版") == "_兼容_版"

@@ -9,7 +9,7 @@ from pathlib import Path
 from .formats import format_selector
 from .models import DownloadArtifacts, DownloadRequest, MediaInfo, TaskProgress
 from .paths import deno_path, ffmpeg_dir, yt_dlp_path
-from .platforms import validate_first_version_url
+from .platforms import detect_platform, validate_first_version_url
 from .processes import ProcessRunner
 from .utils import render_filename_template, unique_media_stem
 
@@ -105,7 +105,8 @@ class YtDlpService:
         timeout: int = 30,
         on_log: LogCallback | None = None,
     ) -> MediaInfo:
-        validate_first_version_url(url)
+        if detect_platform(url) not in {"YouTube", "Douyin"}:
+            raise ValueError("仅支持 YouTube 或抖音单作品链接")
         request = DownloadRequest(
             url=url,
             output_dir=Path("."),

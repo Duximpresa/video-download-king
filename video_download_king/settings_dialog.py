@@ -29,6 +29,7 @@ class SettingsDialog(QDialog):
         tabs = QTabWidget()
         tabs.addTab(self._build_proxy_tab(settings), "代理")
         tabs.addTab(self._build_cookie_tab(settings), "YouTube 登录")
+        tabs.addTab(self._build_douyin_cookie_tab(settings), "抖音登录")
         tabs.addTab(self._build_network_tab(settings), "网络")
 
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
@@ -100,10 +101,27 @@ class SettingsDialog(QDialog):
         form.addRow("网络超时", self.timeout)
         return page
 
+    def _build_douyin_cookie_tab(self, settings: AppSettings) -> QWidget:
+        page = QWidget()
+        form = QFormLayout(page)
+        self.douyin_cookie_file = QLineEdit(settings.douyin_cookie_file)
+        browse = QPushButton("浏览...")
+        browse.clicked.connect(self._browse_douyin_cookie)
+        row = QHBoxLayout()
+        row.addWidget(self.douyin_cookie_file)
+        row.addWidget(browse)
+        form.addRow("Netscape cookies.txt", row)
+        return page
+
     def _browse_cookie(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "选择 cookies.txt", "", "文本文件 (*.txt);;所有文件 (*)")
         if path:
             self.cookie_file.setText(path)
+
+    def _browse_douyin_cookie(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "选择抖音 cookies.txt", "", "文本文件 (*.txt);;所有文件 (*)")
+        if path:
+            self.douyin_cookie_file.setText(path)
 
     def apply(self, settings: AppSettings) -> None:
         settings.proxy = ProxyConfig(
@@ -115,4 +133,5 @@ class SettingsDialog(QDialog):
         )
         settings.cookie_file = self.cookie_file.text().strip()
         settings.cookie_browser = self.cookie_mode.currentData()
+        settings.douyin_cookie_file = self.douyin_cookie_file.text().strip()
         settings.timeout = self.timeout.value()

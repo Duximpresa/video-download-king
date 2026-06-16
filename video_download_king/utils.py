@@ -34,7 +34,18 @@ def unique_media_stem(directory: Path, stem: str) -> str:
     return f"{stem} ({index})"
 
 
-TEMPLATE_FIELDS = {"title", "id", "channel", "platform", "upload_date", "download_date"}
+TEMPLATE_FIELDS = {
+    "title",
+    "id",
+    "channel",
+    "author",
+    "platform",
+    "upload_date",
+    "download_date",
+    "type",
+    "index",
+    "asset",
+}
 TEMPLATE_TOKEN = re.compile(r"\{([a-z_]+)\}")
 
 
@@ -49,6 +60,8 @@ def render_filename_template(template: str, values: dict[str, str]) -> str:
     if unknown:
         raise ValueError(f"未知命名字段：{', '.join(sorted(unknown))}")
     data = {key: values.get(key, "") for key in TEMPLATE_FIELDS}
+    data["author"] = data["author"] or data["channel"]
+    data["channel"] = data["channel"] or data["author"]
     data["upload_date"] = display_date(data["upload_date"])
     data["download_date"] = data["download_date"] or datetime.now().strftime("%Y-%m-%d")
     rendered = TEMPLATE_TOKEN.sub(lambda match: data.get(match.group(1), ""), template)
