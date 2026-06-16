@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "0.5.0"
+    [string]$Version = "0.5.1"
 )
 
 $ErrorActionPreference = "Stop"
@@ -24,11 +24,47 @@ foreach ($Item in $Required) {
     }
 }
 
+function Remove-PackageItem {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Path
+    )
+
+    if (Test-Path $Path) {
+        Remove-Item -LiteralPath $Path -Recurse -Force
+    }
+}
+
+function Optimize-QtPackage {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$PackageDir
+    )
+
+    $PySideDir = Join-Path $PackageDir "_internal\PySide6"
+    if (-not (Test-Path $PySideDir)) {
+        return
+    }
+
+    Remove-PackageItem (Join-Path $PySideDir "translations")
+    Remove-PackageItem (Join-Path $PySideDir "opengl32sw.dll")
+    Remove-PackageItem (Join-Path $PySideDir "Qt6Quick.dll")
+    Remove-PackageItem (Join-Path $PySideDir "Qt6Qml.dll")
+    Remove-PackageItem (Join-Path $PySideDir "Qt6QmlMeta.dll")
+    Remove-PackageItem (Join-Path $PySideDir "Qt6QmlModels.dll")
+    Remove-PackageItem (Join-Path $PySideDir "Qt6QmlWorkerScript.dll")
+    Remove-PackageItem (Join-Path $PySideDir "Qt6Pdf.dll")
+
+    $PlatformsDir = Join-Path $PySideDir "plugins\platforms"
+    if (Test-Path $PlatformsDir) {
+        Get-ChildItem -LiteralPath $PlatformsDir -File |
+            Where-Object { $_.Name -ne "qwindows.dll" } |
+            Remove-Item -Force
+    }
+}
+
 python -m pytest
-python -m PyInstaller --noconfirm --clean --windowed --name VideoDownloadKing `
-    --icon "video_download_king\assets\logo.ico" `
-    --collect-all gmssl `
-    --add-data "video_download_king\assets;video_download_king\assets" main.py
+python -m PyInstaller --noconfirm --clean VideoDownloadKing.spec
 
 $PackageName = "VideoDownloadKing-v$Version-Windows-x64"
 $PackageDir = Join-Path $Root "release\$PackageName"
@@ -38,6 +74,7 @@ Remove-Item -Force $Archive -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $PackageDir | Out-Null
 
 Copy-Item "dist\VideoDownloadKing\*" $PackageDir -Recurse
+Optimize-QtPackage $PackageDir
 Copy-Item "runtime" $PackageDir -Recurse
 Copy-Item "README.md","THIRD_PARTY_NOTICES.md" $PackageDir
 New-Item -ItemType Directory -Force (Join-Path $PackageDir "config"),(Join-Path $PackageDir "downloads") | Out-Null

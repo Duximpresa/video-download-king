@@ -22,6 +22,9 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QFrame,
+    QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QSplitter,
     QTabWidget,
@@ -70,7 +73,8 @@ class MainWindow(QMainWindow):
 
         self.hardware_availability = {"nvidia": False, "intel": False, "amd": False}
         self.setWindowTitle(f"Video Download King {__version__}")
-        self.resize(1280, 950)
+        self.setMinimumSize(1024, 680)
+        self.resize(1180, 760)
         self._build_menu()
         self._build_ui()
         self._apply_settings()
@@ -95,12 +99,23 @@ class MainWindow(QMainWindow):
 
     def _build_ui(self) -> None:
         tabs = QTabWidget()
-        tabs.addTab(self._build_single_tab(), "单链接下载")
+        tabs.addTab(self._make_scroll_page(self._build_single_tab()), "单链接下载")
         self.douyin_page = DouyinPage(self.settings, self.store, self)
-        tabs.addTab(self.douyin_page, "抖音下载")
-        tabs.addTab(self._build_batch_tab(), "批量下载")
+        tabs.addTab(self._make_scroll_page(self.douyin_page), "抖音下载")
+        tabs.addTab(self._make_scroll_page(self._build_batch_tab()), "批量下载")
         self.setCentralWidget(tabs)
         self.statusBar().showMessage("就绪")
+
+    @staticmethod
+    def _make_scroll_page(content: QWidget) -> QScrollArea:
+        scroll = QScrollArea()
+        scroll.setWidget(content)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        scroll.setMinimumSize(0, 0)
+        return scroll
 
     def _build_single_tab(self) -> QWidget:
         page = QWidget()
@@ -288,7 +303,7 @@ class MainWindow(QMainWindow):
         table.setSelectionMode(QAbstractItemView.SingleSelection)
         table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         table.setAlternatingRowColors(True)
-        table.setMinimumHeight(350)
+        table.setMinimumHeight(240)
         table.verticalHeader().setDefaultSectionSize(32)
         table.verticalHeader().setVisible(False)
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)

@@ -6,7 +6,7 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QComboBox, QProgressBar, QPushButton, QSpinBox
+from PySide6.QtWidgets import QApplication, QComboBox, QProgressBar, QPushButton, QScrollArea, QSpinBox
 
 from video_download_king.config import AppSettings
 from video_download_king.config import SettingsStore
@@ -63,6 +63,23 @@ def test_main_window_has_two_progress_bars(monkeypatch) -> None:
     window = MainWindow()
     assert window.total_progress is not window.stage_progress
     assert len(window.findChildren(QProgressBar)) >= 2
+    window.close()
+
+
+def test_main_window_pages_are_scrollable_and_720p_sized(monkeypatch) -> None:
+    app()
+    monkeypatch.setattr(
+        "video_download_king.main_window.FFmpegService.detect_encoders",
+        lambda self, on_log=None: {"nvidia": False, "intel": False, "amd": False},
+    )
+    window = MainWindow()
+    scroll_areas = window.findChildren(QScrollArea)
+    assert len(scroll_areas) >= 3
+    assert all(area.widgetResizable() for area in scroll_areas)
+    assert window.minimumSize().width() <= 1024
+    assert window.minimumSize().height() <= 720
+    assert window.video_table.minimumHeight() <= 260
+    assert window.audio_table.minimumHeight() <= 260
     window.close()
 
 

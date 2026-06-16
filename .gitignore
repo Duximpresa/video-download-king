@@ -6,6 +6,7 @@ build/
 dist/
 release/
 *.spec
+!VideoDownloadKing.spec
 config/settings.json
 config/settings.json.corrupt-*
 runtime/ffmpeg/

@@ -2,6 +2,24 @@
 
 本文件汇总 Video Download King 的正式版本变更。日期均为项目本地提交日期。
 
+## 0.5.1 - 2026-06-16
+
+### 改进
+
+- 主窗口默认尺寸调整为更适合 1080p 的 `1180x760`，最小尺寸调整为 `1024x680`。
+- 单链接页、抖音页和批量页统一放入可伸缩滚动区域，窗口高度不足时可通过垂直滚动访问底部控件。
+- 降低格式表格最小高度，避免表格把窗口最小高度撑爆。
+- 固定 PyInstaller `VideoDownloadKing.spec`，发布脚本改为通过 spec 构建，避免生成式命令漂移。
+- 移除 `--collect-all gmssl`，改为只保留抖音签名需要的 `gmssl.func` 和 `gmssl.sm3`。
+- 发布包裁剪未使用的 Qt translations、QtQuick、QtQml、QtPdf、OpenGL 软件渲染 DLL 和非必要 platform 插件。
+
+### 验证
+
+- 新增 UI 尺寸和打包配置测试。
+- `v0.5.1` ZIP 体积约 `157.99 MB`，相比 `v0.5.0` 的 `176.44 MB` 减少约 `18.45 MB`。
+- 发布包：`VideoDownloadKing-v0.5.1-Windows-x64.zip`
+- SHA256：`BAED9D946EBEB9AAEC50CFBFD48E12B843083DBE39353F785A7AC13C2653D044`
+
 ## 0.5.0 - 2026-06-16
 
 ### 新增
