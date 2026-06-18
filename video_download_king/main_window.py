@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QThread, Qt, QUrl, Signal
-from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QPixmap
+from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QPixmap, QResizeEvent
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -70,6 +70,7 @@ class MainWindow(QMainWindow):
         self.subtitle_selections: list[SubtitleSelection] = []
         self.thread: QThread | None = None
         self.worker = None
+        self._analysis_running = False
         self.network = QNetworkAccessManager(self)
 
         self.hardware_availability = {"nvidia": False, "intel": False, "amd": False}
@@ -100,16 +101,19 @@ class MainWindow(QMainWindow):
 
     def _build_ui(self) -> None:
         tabs = QTabWidget()
-        tabs.addTab(self._make_scroll_page(self._build_single_tab()), "单链接下载")
+        tabs.addTab(self._build_single_tab(), "单链接下载")
         self.douyin_page = DouyinPage(self.settings, self.store, self)
         tabs.addTab(self._make_scroll_page(self.douyin_page), "抖音下载")
         tabs.addTab(self._make_scroll_page(self._build_batch_tab()), "批量下载")
+        tabs.currentChanged.connect(lambda _index: self._sync_scroll_pages())
         self.setCentralWidget(tabs)
         self.statusBar().showMessage("就绪")
 
     @staticmethod
     def _make_scroll_page(content: QWidget) -> QScrollArea:
         scroll = QScrollArea()
+        content.setMinimumWidth(0)
+        content.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         scroll.setWidget(content)
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
@@ -118,35 +122,61 @@ class MainWindow(QMainWindow):
         scroll.setMinimumSize(0, 0)
         return scroll
 
+    def _sync_scroll_pages(self) -> None:
+        for scroll in self.findChildren(QScrollArea):
+            content = scroll.widget()
+            if content:
+                content.resize(scroll.viewport().width(), content.height())
+                content.updateGeometry()
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        self._sync_scroll_pages()
+
     def _build_single_tab(self) -> QWidget:
         page = QWidget()
         root = QVBoxLayout(page)
+        root.setContentsMargins(8, 7, 8, 7)
+        root.setSpacing(6)
+        top = QWidget()
+        top_layout = QVBoxLayout(top)
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.setSpacing(6)
 
-        url_row = QHBoxLayout()
+        url_row = QGridLayout()
+        url_row.setHorizontalSpacing(6)
         self.url_edit = QLineEdit()
         self.url_edit.setPlaceholderText("粘贴 YouTube 单视频链接")
         self.analyze_button = QPushButton("分析链接")
         self.analyze_button.clicked.connect(self._analyze)
-        url_row.addWidget(QLabel("网址"))
-        url_row.addWidget(self.url_edit, 1)
-        url_row.addWidget(self.analyze_button)
-        root.addLayout(url_row)
+        self.stop_analysis_button = QPushButton("停止分析")
+        self.stop_analysis_button.setProperty("danger", True)
+        self.stop_analysis_button.setVisible(False)
+        self.stop_analysis_button.clicked.connect(self._cancel)
+        url_row.addWidget(QLabel("网址"), 0, 0)
+        url_row.addWidget(self.url_edit, 0, 1)
+        url_row.addWidget(self.analyze_button, 0, 2)
+        url_row.addWidget(self.stop_analysis_button, 0, 3)
+        url_row.setColumnStretch(1, 1)
+        top_layout.addLayout(url_row)
 
-        path_row = QHBoxLayout()
+        path_row = QGridLayout()
+        path_row.setHorizontalSpacing(6)
         self.path_edit = QLineEdit()
         browse = QPushButton("选择...")
         browse.clicked.connect(self._browse_output)
         self.classify_check = QCheckBox("按平台分类保存")
-        path_row.addWidget(QLabel("保存到"))
-        path_row.addWidget(self.path_edit, 1)
-        path_row.addWidget(browse)
-        path_row.addWidget(self.classify_check)
-        root.addLayout(path_row)
+        path_row.addWidget(QLabel("保存到"), 0, 0)
+        path_row.addWidget(self.path_edit, 0, 1)
+        path_row.addWidget(browse, 0, 2)
+        path_row.addWidget(self.classify_check, 0, 3)
+        path_row.setColumnStretch(1, 1)
+        top_layout.addLayout(path_row)
 
         info_group = QGroupBox("视频信息")
         info_layout = QHBoxLayout(info_group)
         self.thumbnail = QLabel("等待分析")
-        self.thumbnail.setFixedSize(200, 112)
+        self.thumbnail.setFixedSize(176, 99)
         self.thumbnail.setAlignment(Qt.AlignCenter)
         self.thumbnail.setStyleSheet("background:#20242b;border-radius:6px;color:#9aa4b2")
         self.title_label = QLabel("尚未分析链接")
@@ -158,26 +188,49 @@ class MainWindow(QMainWindow):
         details.addStretch()
         info_layout.addWidget(self.thumbnail)
         info_layout.addLayout(details, 1)
-        root.addWidget(info_group)
-        root.addWidget(self._build_download_options())
+        top_layout.addWidget(info_group)
+        top_layout.addWidget(self._build_download_options())
+        root.addWidget(top)
 
-        splitter = QSplitter(Qt.Horizontal)
+        encoding_splitter = QSplitter(Qt.Horizontal)
         self.format_panel = self._build_format_panel()
         self.transcode_panel = self._build_transcode_panel()
-        splitter.addWidget(self.format_panel)
-        splitter.addWidget(self.transcode_panel)
-        splitter.setSizes([700, 430])
-        root.addWidget(splitter, 1)
+        encoding_splitter.addWidget(self.format_panel)
+        encoding_splitter.addWidget(self.transcode_panel)
+        encoding_splitter.setSizes([700, 430])
+        encoding_splitter.setChildrenCollapsible(False)
+        encoding_splitter.setMinimumHeight(
+            max(
+                self.format_panel.minimumSizeHint().height(),
+                self.transcode_panel.minimumSizeHint().height(),
+            )
+        )
+        encoding_splitter.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        self.encoding_scroll = QScrollArea()
+        self.encoding_scroll.setWidget(encoding_splitter)
+        self.encoding_scroll.setWidgetResizable(True)
+        self.encoding_scroll.setFrameShape(QFrame.NoFrame)
+        self.encoding_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.encoding_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self._mode_changed()
 
-        controls = QHBoxLayout()
+        self.status_panel = QFrame()
+        self.status_panel.setObjectName("statusPanel")
+        self.status_panel.setMinimumHeight(150)
+        status_layout = QVBoxLayout(self.status_panel)
+        status_layout.setContentsMargins(0, 5, 0, 0)
+        status_layout.setSpacing(5)
+        controls = QGridLayout()
+        controls.setHorizontalSpacing(6)
         self.download_button = QPushButton("开始下载")
         self.download_button.setEnabled(False)
         self.download_button.clicked.connect(self._download)
         self.cancel_button = QPushButton("取消")
+        self.cancel_button.setProperty("secondary", True)
         self.cancel_button.setEnabled(False)
         self.cancel_button.clicked.connect(self._cancel)
         self.open_folder_button = QPushButton("打开保存目录")
+        self.open_folder_button.setProperty("secondary", True)
         self.open_folder_button.clicked.connect(self._open_output)
         self.total_progress = QProgressBar()
         self.total_progress.setRange(0, 100)
@@ -188,26 +241,43 @@ class MainWindow(QMainWindow):
         self.stage_progress.setValue(0)
         self.stage_progress.setFormat("当前阶段 %p%")
         self.progress = self.total_progress
-        controls.addWidget(self.download_button)
-        controls.addWidget(self.cancel_button)
-        controls.addWidget(self.open_folder_button)
-        controls.addWidget(self.total_progress, 1)
-        controls.addWidget(self.stage_progress, 1)
-        root.addLayout(controls)
+        controls.addWidget(self.download_button, 0, 0)
+        controls.addWidget(self.cancel_button, 0, 1)
+        controls.addWidget(self.open_folder_button, 0, 2)
+        controls.addWidget(self.total_progress, 0, 3)
+        controls.addWidget(self.stage_progress, 0, 4)
+        controls.setColumnStretch(3, 1)
+        controls.setColumnStretch(4, 1)
+        status_layout.addLayout(controls)
 
         self.progress_label = QLabel("就绪")
-        root.addWidget(self.progress_label)
+        status_layout.addWidget(self.progress_label)
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
+        self.log.setMinimumHeight(80)
         self.log.setMaximumBlockCount(2000)
         self.log.setPlaceholderText("分析、下载和转码日志会显示在这里")
-        root.addWidget(self.log, 1)
+        status_layout.addWidget(self.log, 1)
+
+        self.workspace_splitter = QSplitter(Qt.Vertical)
+        self.workspace_splitter.setChildrenCollapsible(False)
+        self.workspace_splitter.setHandleWidth(5)
+        self.workspace_splitter.addWidget(self.encoding_scroll)
+        self.workspace_splitter.addWidget(self.status_panel)
+        self.workspace_splitter.setSizes([420, 180])
+        self.workspace_splitter.setStretchFactor(0, 3)
+        self.workspace_splitter.setStretchFactor(1, 1)
+        root.addWidget(self.workspace_splitter, 1)
         return page
 
     def _build_format_panel(self) -> QWidget:
         group = QGroupBox("输出与格式")
         layout = QVBoxLayout(group)
+        layout.setContentsMargins(8, 8, 8, 7)
+        layout.setSpacing(5)
         form = QFormLayout()
+        form.setHorizontalSpacing(8)
+        form.setVerticalSpacing(4)
         self.mode_combo = QComboBox()
         self.mode_combo.addItem("视频+音频", "video_audio")
         self.mode_combo.addItem("仅视频", "video_only")
@@ -260,6 +330,9 @@ class MainWindow(QMainWindow):
     def _build_download_options(self) -> QWidget:
         group = QGroupBox("下载选项")
         layout = QGridLayout(group)
+        layout.setContentsMargins(8, 8, 8, 7)
+        layout.setHorizontalSpacing(6)
+        layout.setVerticalSpacing(4)
         self.filename_template = QLineEdit("{title} [{id}]")
         self.filename_template.textChanged.connect(self._update_filename_preview)
         layout.addWidget(QLabel("命名模板"), 0, 0)
@@ -304,8 +377,8 @@ class MainWindow(QMainWindow):
         table.setSelectionMode(QAbstractItemView.SingleSelection)
         table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         table.setAlternatingRowColors(True)
-        table.setMinimumHeight(240)
-        table.verticalHeader().setDefaultSectionSize(32)
+        table.setMinimumHeight(205)
+        table.verticalHeader().setDefaultSectionSize(27)
         table.verticalHeader().setVisible(False)
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         table.horizontalHeader().setStretchLastSection(True)
@@ -319,13 +392,8 @@ class MainWindow(QMainWindow):
     def _bind_transcode_panel(self, panel: TranscodePanel) -> None:
         self.transcode_check = panel.transcode_check
         self.keep_source_check = panel.keep_source_check
-        self.processor_combo = panel.processor_combo
-        self.vendor_combo = panel.vendor_combo
         self.rate_mode = panel.rate_mode
-        self.quality_spin = panel.quality_spin
-        self.video_bitrate = panel.video_bitrate
-        self.audio_bitrate = panel.audio_bitrate
-        self.audio_custom = panel.audio_custom
+        self.video_encoder_combo = panel.video_encoder_combo
         self.suffix_mode = panel.suffix_mode
         self.custom_suffix = panel.custom_suffix
 
@@ -357,24 +425,16 @@ class MainWindow(QMainWindow):
     def _detect_hardware(self) -> None:
         if not ffmpeg_path().exists():
             return
-        self.statusBar().showMessage("正在检测硬件编码器...")
+        self.statusBar().showMessage("正在检测硬件加速能力...")
         QApplication.processEvents()
         self.hardware_availability = FFmpegService().detect_encoders(self._append_log)
         self.transcode_panel.set_available_hardware(self.hardware_availability)
-        self.douyin_page.transcode_panel.set_available_hardware(self.hardware_availability)
         if self.first_run and self.hardware_availability.get("nvidia"):
-            self.processor_combo.setCurrentIndex(self.processor_combo.findData("gpu"))
-            self.vendor_combo.setCurrentIndex(self.vendor_combo.findData("nvidia"))
-            self.douyin_page.transcode_panel.processor_combo.setCurrentIndex(
-                self.douyin_page.transcode_panel.processor_combo.findData("gpu")
-            )
-            self.douyin_page.transcode_panel.vendor_combo.setCurrentIndex(
-                self.douyin_page.transcode_panel.vendor_combo.findData("nvidia")
-            )
-        elif self.processor_combo.currentData() == "gpu" and not self.hardware_availability.get(
-            self.vendor_combo.currentData(), False
+            self.video_encoder_combo.setCurrentIndex(self.video_encoder_combo.findData("nvidia"))
+        elif self.video_encoder_combo.currentData() != "cpu" and not self.hardware_availability.get(
+            self.video_encoder_combo.currentData(), False
         ):
-            self.processor_combo.setCurrentIndex(self.processor_combo.findData("cpu"))
+            self.video_encoder_combo.setCurrentIndex(self.video_encoder_combo.findData("cpu"))
         self.statusBar().showMessage("就绪")
 
     def _open_settings(self) -> None:
@@ -542,6 +602,7 @@ class MainWindow(QMainWindow):
         except ValueError as exc:
             QMessageBox.warning(self, "无法分析", str(exc))
             return
+        self._analysis_running = True
         self.media = None
         self.subtitle_selections = []
         self.subtitle_button.setEnabled(False)
@@ -564,6 +625,7 @@ class MainWindow(QMainWindow):
         except ValueError as exc:
             QMessageBox.warning(self, "无法下载", str(exc))
             return
+        self._analysis_running = False
         self._save_ui_settings()
         self._set_busy(True, "正在启动下载...")
         worker = DownloadWorker(request)
@@ -600,12 +662,14 @@ class MainWindow(QMainWindow):
     def _cancel(self) -> None:
         if self.worker:
             self.cancel_button.setEnabled(False)
+            self.stop_analysis_button.setEnabled(False)
             self.progress_label.setText("正在取消...")
             self.cancel_requested.emit()
 
     def _thread_finished(self) -> None:
         self.thread = None
         self.worker = None
+        self._analysis_running = False
         self._set_busy(False, self.progress_label.text())
 
     def _analysis_complete(self, media: MediaInfo) -> None:
@@ -619,6 +683,14 @@ class MainWindow(QMainWindow):
         )
         self._populate_table(self.video_table, video_formats(media.formats))
         self._populate_table(self.audio_table, audio_formats(media.formats), allow_none=True)
+        videos = [item for item in media.formats if item.has_video]
+        hint = max(videos, key=lambda item: ((item.width or 0) * (item.height or 0), item.vbr or 0), default=None)
+        self.transcode_panel.set_media_hint(
+            hint.width if hint else None,
+            hint.height if hint else None,
+            hint.fps if hint else None,
+            media.duration,
+        )
         self.subtitle_button.setEnabled(bool(media.subtitle_options) and self.mode_combo.currentData() != "cover")
         self._update_subtitle_summary()
         self.download_button.setEnabled(True)
@@ -724,6 +796,8 @@ class MainWindow(QMainWindow):
         self.analyze_button.setEnabled(not busy)
         self.download_button.setEnabled(not busy and self.media is not None)
         self.cancel_button.setEnabled(busy)
+        self.stop_analysis_button.setVisible(busy and self._analysis_running)
+        self.stop_analysis_button.setEnabled(busy and self._analysis_running)
         self.progress_label.setText(text)
 
     def _set_analysis_progress(self) -> None:
@@ -742,34 +816,18 @@ class MainWindow(QMainWindow):
 
     def _mode_changed(self) -> None:
         mode = self.mode_combo.currentData()
+        cover_only = mode == "cover"
+        self.mode_combo.setEnabled(True)
         self.quality_combo.setEnabled(mode in {"video_audio", "video_only"})
         self.custom_height.setEnabled(mode in {"video_audio", "video_only"})
         self.audio_output.setEnabled(mode == "audio")
         self.format_tabs.setEnabled(mode == "advanced")
-        cover_only = mode == "cover"
-        self.format_panel.setEnabled(not cover_only)
         self.transcode_panel.setEnabled(not cover_only)
         self.transcode_panel.set_transcode_allowed(mode not in {"audio", "video_only", "cover"})
         self.download_thumbnail_check.setEnabled(not cover_only)
         self.subtitle_button.setEnabled(not cover_only and bool(self.media and self.media.subtitle_options))
         self.download_thumbnail_check.setText("仅封面模式自动下载" if cover_only else "下载封面")
         self._update_filename_preview()
-
-    def _rate_mode_changed(self) -> None:
-        mode = self.rate_mode.currentData()
-        self.quality_spin.setEnabled(mode == "quality")
-        self.video_bitrate.setEnabled(mode == "bitrate")
-
-    def _processor_changed(self) -> None:
-        gpu = self.processor_combo.currentData() == "gpu"
-        self.vendor_combo.setEnabled(gpu)
-        if gpu and not self.hardware_availability.get(self.vendor_combo.currentData(), False):
-            first_available = next((vendor for vendor, available in self.hardware_availability.items() if available), None)
-            if first_available:
-                self.vendor_combo.setCurrentIndex(self.vendor_combo.findData(first_available))
-
-    def _suffix_mode_changed(self) -> None:
-        self.custom_suffix.setEnabled(self.suffix_mode.currentData() == "custom")
 
     def _update_stream_selection(self) -> None:
         self.video_selection_label.setText(f"当前视频流：{self._selected_format_id(self.video_table) or '未选择'}")

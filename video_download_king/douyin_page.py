@@ -26,7 +26,6 @@ from PySide6.QtWidgets import (
 from .config import AppSettings, SettingsStore
 from .douyin_workers import DouyinAnalyzeWorker, DouyinDownloadWorker
 from .models import DouyinDownloadRequest, DouyinMediaInfo, TaskProgress, TaskResult
-from .transcode_panel import TranscodePanel
 from .utils import render_filename_template
 
 
@@ -40,21 +39,31 @@ class DouyinPage(QWidget):
         self.media: DouyinMediaInfo | None = None
         self.thread: QThread | None = None
         self.worker = None
+        self._analysis_running = False
         self.network = QNetworkAccessManager(self)
         self._build_ui()
         self._apply_settings()
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
+        root.setContentsMargins(8, 7, 8, 7)
+        root.setSpacing(6)
 
-        url_row = QHBoxLayout()
+        url_row = QGridLayout()
+        url_row.setHorizontalSpacing(6)
         self.url_edit = QLineEdit()
         self.url_edit.setPlaceholderText("粘贴抖音单视频、图集链接或包含链接的分享文本")
         self.analyze_button = QPushButton("分析作品")
         self.analyze_button.clicked.connect(self._analyze)
-        url_row.addWidget(QLabel("网址"))
-        url_row.addWidget(self.url_edit, 1)
-        url_row.addWidget(self.analyze_button)
+        self.stop_analysis_button = QPushButton("停止分析")
+        self.stop_analysis_button.setProperty("danger", True)
+        self.stop_analysis_button.setVisible(False)
+        self.stop_analysis_button.clicked.connect(self.cancel)
+        url_row.addWidget(QLabel("网址"), 0, 0)
+        url_row.addWidget(self.url_edit, 0, 1)
+        url_row.addWidget(self.analyze_button, 0, 2)
+        url_row.addWidget(self.stop_analysis_button, 0, 3)
+        url_row.setColumnStretch(1, 1)
         root.addLayout(url_row)
 
         option_row = QHBoxLayout()
@@ -78,23 +87,25 @@ class DouyinPage(QWidget):
         option_row.addStretch()
         root.addLayout(option_row)
 
-        path_row = QHBoxLayout()
+        path_row = QGridLayout()
+        path_row.setHorizontalSpacing(6)
         self.path_edit = QLineEdit()
         browse = QPushButton("选择...")
         browse.clicked.connect(self._browse_output)
         self.classify_check = QCheckBox("按平台分类保存")
         self.classify_author_check = QCheckBox("按作者分类保存")
-        path_row.addWidget(QLabel("保存到"))
-        path_row.addWidget(self.path_edit, 1)
-        path_row.addWidget(browse)
-        path_row.addWidget(self.classify_check)
-        path_row.addWidget(self.classify_author_check)
+        path_row.addWidget(QLabel("保存到"), 0, 0)
+        path_row.addWidget(self.path_edit, 0, 1)
+        path_row.addWidget(browse, 0, 2)
+        path_row.addWidget(self.classify_check, 0, 3)
+        path_row.addWidget(self.classify_author_check, 0, 4)
+        path_row.setColumnStretch(1, 1)
         root.addLayout(path_row)
 
         info_group = QGroupBox("作品信息")
         info_layout = QHBoxLayout(info_group)
         self.thumbnail = QLabel("等待分析")
-        self.thumbnail.setFixedSize(200, 200)
+        self.thumbnail.setFixedSize(164, 164)
         self.thumbnail.setAlignment(Qt.AlignCenter)
         self.thumbnail.setStyleSheet("background:#20242b;border-radius:6px;color:#9aa4b2")
         details = QVBoxLayout()
@@ -115,6 +126,9 @@ class DouyinPage(QWidget):
 
         download_group = QGroupBox("下载选项")
         download_form = QGridLayout(download_group)
+        download_form.setContentsMargins(8, 8, 8, 7)
+        download_form.setHorizontalSpacing(6)
+        download_form.setVerticalSpacing(4)
         self.filename_template = QLineEdit("{title} [{id}]")
         self.filename_template.textChanged.connect(self._update_preview)
         self.download_thumbnail_check = QCheckBox("同时下载封面")
@@ -122,8 +136,8 @@ class DouyinPage(QWidget):
         self.preview_label.setWordWrap(True)
         download_form.addWidget(QLabel("命名模板"), 0, 0)
         download_form.addWidget(self.filename_template, 0, 1, 1, 7)
-        fields = QHBoxLayout()
-        for label, token in (
+        fields = QGridLayout()
+        for index, (label, token) in enumerate((
             ("标题", "{title}"),
             ("ID", "{id}"),
             ("作者", "{author}"),
@@ -133,10 +147,11 @@ class DouyinPage(QWidget):
             ("类型", "{type}"),
             ("序号", "{index}"),
             ("资源", "{asset}"),
-        ):
+        )):
             button = QPushButton(label)
             button.clicked.connect(lambda _checked=False, value=token: self.filename_template.insert(value))
-            fields.addWidget(button)
+            fields.addWidget(button, index // 5, index % 5)
+            fields.setColumnStretch(index % 5, 1)
         download_form.addLayout(fields, 1, 1, 1, 7)
         download_form.addWidget(self.download_thumbnail_check, 2, 1, 1, 7)
         download_form.addWidget(QLabel("文件名"), 3, 0)
@@ -144,18 +159,17 @@ class DouyinPage(QWidget):
         download_form.setColumnStretch(1, 1)
         root.addWidget(download_group)
 
-        self.transcode_panel = TranscodePanel("兼容 MP4（仅视频）")
-        self.transcode_group = self.transcode_panel
-        root.addWidget(self.transcode_panel)
-
-        controls = QHBoxLayout()
+        controls = QGridLayout()
+        controls.setHorizontalSpacing(6)
         self.download_button = QPushButton("开始下载")
         self.download_button.setEnabled(False)
         self.download_button.clicked.connect(self._download)
         self.cancel_button = QPushButton("取消")
+        self.cancel_button.setProperty("secondary", True)
         self.cancel_button.setEnabled(False)
         self.cancel_button.clicked.connect(self.cancel)
         open_folder = QPushButton("打开保存目录")
+        open_folder.setProperty("secondary", True)
         open_folder.clicked.connect(self._open_output)
         self.total_progress = QProgressBar()
         self.total_progress.setRange(0, 100)
@@ -163,11 +177,13 @@ class DouyinPage(QWidget):
         self.stage_progress = QProgressBar()
         self.stage_progress.setRange(0, 100)
         self.stage_progress.setFormat("当前阶段 %p%")
-        controls.addWidget(self.download_button)
-        controls.addWidget(self.cancel_button)
-        controls.addWidget(open_folder)
-        controls.addWidget(self.total_progress, 1)
-        controls.addWidget(self.stage_progress, 1)
+        controls.addWidget(self.download_button, 0, 0)
+        controls.addWidget(self.cancel_button, 0, 1)
+        controls.addWidget(open_folder, 0, 2)
+        controls.addWidget(self.total_progress, 0, 3)
+        controls.addWidget(self.stage_progress, 0, 4)
+        controls.setColumnStretch(3, 1)
+        controls.setColumnStretch(4, 1)
         root.addLayout(controls)
 
         self.progress_label = QLabel("就绪")
@@ -184,7 +200,6 @@ class DouyinPage(QWidget):
         self.classify_author_check.setChecked(self.settings.douyin_classify_by_author)
         self.filename_template.setText(self.settings.filename_template)
         self.download_thumbnail_check.setChecked(self.settings.download_thumbnail)
-        self.transcode_panel.load_config(self.settings.transcode)
 
     def _request(self) -> DouyinDownloadRequest:
         if not self.url_edit.text().strip():
@@ -193,9 +208,6 @@ class DouyinPage(QWidget):
             raise ValueError("请选择保存目录")
         template = self.filename_template.text().strip() or "{title} [{id}]"
         render_filename_template(template, self._template_values(index=1, asset="视频"))
-        transcode_enabled = self.transcode_panel.transcode_check.isChecked() and bool(
-            not self.media or self.media.media_type == "video"
-        )
         return DouyinDownloadRequest(
             url=self.url_edit.text().strip(),
             output_dir=Path(self.path_edit.text().strip()).expanduser(),
@@ -208,7 +220,6 @@ class DouyinPage(QWidget):
             proxy=self.settings.proxy,
             timeout=self.settings.timeout,
             download_thumbnail=self.download_thumbnail_check.isChecked(),
-            transcode=self.transcode_panel.to_config(enabled=transcode_enabled),
             media=self.media,
         )
 
@@ -220,6 +231,7 @@ class DouyinPage(QWidget):
         except ValueError as exc:
             QMessageBox.warning(self, "无法分析", str(exc))
             return
+        self._analysis_running = True
         self.media = None
         self.download_button.setEnabled(False)
         self._set_busy(True, "正在分析抖音作品...")
@@ -238,6 +250,7 @@ class DouyinPage(QWidget):
         except ValueError as exc:
             QMessageBox.warning(self, "无法下载", str(exc))
             return
+        self._analysis_running = False
         self._save_settings()
         self._set_busy(True, "正在启动抖音下载...")
         worker = DouyinDownloadWorker(request)
@@ -245,7 +258,6 @@ class DouyinPage(QWidget):
         worker.progress.connect(self._update_progress)
         worker.completed.connect(self._download_complete)
         worker.engine_fallback_requested.connect(self._ask_engine_fallback)
-        worker.gpu_fallback_requested.connect(self._ask_gpu_fallback)
 
     def _start_worker(self, worker, run_slot) -> None:
         thread = QThread(self)
@@ -274,12 +286,10 @@ class DouyinPage(QWidget):
             self.engine_combo.setCurrentIndex(self.engine_combo.findData("native"))
             self.engine_combo.setEnabled(False)
             self.quality_combo.setEnabled(False)
-            self.transcode_group.setEnabled(False)
         else:
             detail = f"视频：{len(media.video_assets) or '由 yt-dlp 提供'} 个可用格式"
             self.engine_combo.setEnabled(True)
             self.quality_combo.setEnabled(True)
-            self.transcode_group.setEnabled(True)
         duration = int(media.duration or 0)
         self.meta_label.setText(
             f"类型：{'图集' if media.media_type == 'gallery' else '视频'}    "
@@ -315,17 +325,6 @@ class DouyinPage(QWidget):
             self.engine_combo.setCurrentIndex(self.engine_combo.findData(target))
         if self.worker:
             self.worker.resolve_engine_fallback(answer == QMessageBox.Yes)
-
-    def _ask_gpu_fallback(self, diagnostic: str) -> None:
-        answer = QMessageBox.question(
-            self,
-            "GPU 转码失败",
-            f"{diagnostic}\n\n是否改用 CPU 继续转码？",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.Yes,
-        )
-        if self.worker:
-            self.worker.resolve_gpu_fallback(answer == QMessageBox.Yes)
 
     def _task_failed(self, category: str, message: str) -> None:
         self._reset_analysis_progress()
@@ -422,7 +421,6 @@ class DouyinPage(QWidget):
         self.settings.douyin_classify_by_author = self.classify_author_check.isChecked()
         self.settings.filename_template = self.filename_template.text().strip() or "{title} [{id}]"
         self.settings.download_thumbnail = self.download_thumbnail_check.isChecked()
-        self.settings.transcode = self.transcode_panel.to_config()
         self.store.save(self.settings)
 
     def _append_log(self, text: str) -> None:
@@ -433,6 +431,8 @@ class DouyinPage(QWidget):
         self.analyze_button.setEnabled(not busy)
         self.download_button.setEnabled(not busy and self.media is not None)
         self.cancel_button.setEnabled(busy)
+        self.stop_analysis_button.setVisible(busy and self._analysis_running)
+        self.stop_analysis_button.setEnabled(busy and self._analysis_running)
         self.progress_label.setText(text)
 
     def _set_analysis_progress(self) -> None:
@@ -452,6 +452,7 @@ class DouyinPage(QWidget):
     def _thread_finished(self) -> None:
         self.thread = None
         self.worker = None
+        self._analysis_running = False
         self._set_busy(False, self.progress_label.text())
 
     def is_busy(self) -> bool:
@@ -460,6 +461,7 @@ class DouyinPage(QWidget):
     def cancel(self) -> None:
         if self.worker:
             self.cancel_button.setEnabled(False)
+            self.stop_analysis_button.setEnabled(False)
             self.progress_label.setText("正在取消...")
             self.cancel_requested.emit()
 

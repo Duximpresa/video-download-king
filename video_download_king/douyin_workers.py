@@ -19,7 +19,6 @@ from .models import (
 )
 from .processes import ProcessCancelled
 from .platforms import extract_douyin_url
-from .transcode import FFmpegService, HardwareEncodingError
 from .utils import unique_path
 from .ytdlp import YtDlpService
 
@@ -139,7 +138,6 @@ class DouyinDownloadWorker(QObject):
     progress = Signal(object)
     completed = Signal(object)
     engine_fallback_requested = Signal(str, str)
-    gpu_fallback_requested = Signal(str)
     finished = Signal()
 
     def __init__(self, request: DouyinDownloadRequest) -> None:
@@ -147,11 +145,8 @@ class DouyinDownloadWorker(QObject):
         self.request = request
         self.native = DouyinService()
         self.ytdlp = YtDlpService()
-        self.transcoder = FFmpegService()
         self._decision_event = Event()
         self._allow_engine_fallback = False
-        self._gpu_event = Event()
-        self._allow_gpu_fallback = False
         self._last_total_percent = 0.0
 
     @Slot()
@@ -204,19 +199,9 @@ class DouyinDownloadWorker(QObject):
             files = self.native.download(self.request, self._native_progress, self.log.emit)
         else:
             files = self._download_ytdlp()
-        media = self.request.media
-        if (
-            media
-            and media.media_type == "video"
-            and self.request.transcode.enabled
-            and files
-        ):
-            files[0] = self._transcode(files[0])
         return files
 
     def _native_progress(self, progress: TaskProgress) -> None:
-        if self.request.transcode.enabled and self.request.media and self.request.media.media_type == "video":
-            progress.total_percent = (progress.total_percent or 0) * 0.8
         if progress.total_percent is not None:
             self._last_total_percent = max(self._last_total_percent, progress.total_percent)
             progress.total_percent = self._last_total_percent
@@ -246,9 +231,6 @@ class DouyinDownloadWorker(QObject):
             request = _yt_request(self.request, media)
 
             def on_progress(progress: TaskProgress) -> None:
-                progress.total_percent = (progress.total_percent or 0) * (
-                    0.8 if self.request.transcode.enabled else 1.0
-                )
                 self.progress.emit(progress)
 
             artifacts = self.ytdlp.download(request, staging, on_progress, self.log.emit)
@@ -272,50 +254,13 @@ class DouyinDownloadWorker(QObject):
         finally:
             shutil.rmtree(staging, ignore_errors=True)
 
-    def _transcode(self, source: Path) -> Path:
-        self.progress.emit(
-            TaskProgress("检测", 80, stage_indeterminate=True, message="正在检查媒体编码")
-        )
-
-        def on_progress(progress: TaskProgress) -> None:
-            progress.total_percent = 80 + (progress.stage_percent or 0) * 0.2
-            self.progress.emit(progress)
-
-        try:
-            return self.transcoder.convert(
-                source,
-                self.request.transcode,
-                on_progress,
-                self.log.emit,
-            )
-        except HardwareEncodingError as exc:
-            self._gpu_event.clear()
-            self.gpu_fallback_requested.emit(str(exc))
-            self._gpu_event.wait()
-            if not self._allow_gpu_fallback:
-                raise
-            self.request.transcode.processor = "cpu"
-            return self.transcoder.convert(
-                source,
-                self.request.transcode,
-                on_progress,
-                self.log.emit,
-            )
-
     @Slot()
     def cancel(self) -> None:
         self._allow_engine_fallback = False
-        self._allow_gpu_fallback = False
         self._decision_event.set()
-        self._gpu_event.set()
         self.native.cancel()
         self.ytdlp.cancel()
-        self.transcoder.cancel()
 
     def resolve_engine_fallback(self, allow: bool) -> None:
         self._allow_engine_fallback = allow
         self._decision_event.set()
-
-    def resolve_gpu_fallback(self, allow: bool) -> None:
-        self._allow_gpu_fallback = allow
-        self._gpu_event.set()

@@ -11,6 +11,29 @@ from .models import ProxyConfig, TranscodeConfig
 from .paths import app_root, settings_path
 
 
+def _transcode_config(data: Any, *, enabled_default: bool = True) -> TranscodeConfig:
+    values = data if isinstance(data, dict) else {}
+    migrated = dict(values)
+    old_mode = migrated.get("rate_mode")
+    if old_mode in {"auto", "bitrate"}:
+        migrated["rate_mode"] = "vbr"
+        old_bitrate = migrated.get("video_bitrate_kbps")
+        migrated["video_bitrate"] = str(old_bitrate) if old_bitrate else "auto"
+    elif old_mode == "quality":
+        migrated["rate_mode"] = "cq"
+    if "video_encoder" not in migrated:
+        processor = migrated.get("processor", "cpu")
+        vendor = migrated.get("hardware_vendor", "nvidia")
+        migrated["video_encoder"] = vendor if processor == "gpu" else "cpu"
+    filtered = {
+        key: value
+        for key, value in migrated.items()
+        if key in TranscodeConfig.__dataclass_fields__
+    }
+    filtered.setdefault("enabled", enabled_default)
+    return TranscodeConfig(**filtered)
+
+
 @dataclass(slots=True)
 class AppSettings:
     save_path: str = "downloads"
@@ -65,9 +88,7 @@ class SettingsStore:
                 subtitle_languages=data.get("subtitle_languages", "zh-Hans,zh.*,en.*"),
                 subtitle_format=data.get("subtitle_format", "srt"),
                 show_all_automatic_subtitles=bool(data.get("show_all_automatic_subtitles", False)),
-                transcode=TranscodeConfig(
-                    **{key: value for key, value in transcode_data.items() if key in TranscodeConfig.__dataclass_fields__}
-                ),
+                transcode=_transcode_config(transcode_data),
             )
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             stamp = datetime.now().strftime("%Y%m%d-%H%M%S")

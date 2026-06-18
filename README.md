@@ -1,4 +1,4 @@
-# Video Download King 0.5.2
+# Video Download King 0.5.3
 
 面向 Windows 11 的中文桌面视频下载器。支持 YouTube 单视频，以及抖音单视频和图集；视频可使用自研抖音引擎或 `yt-dlp`，并可通过 FFmpeg 输出兼容的 H.264 + AAC MP4。
 
@@ -21,9 +21,11 @@
 - HTTP、HTTPS、SOCKS4、SOCKS5 代理
 - `cookies.txt` 或 Chrome/Edge Cookie
 - 按 `YouTube` 子目录自动分类
-- 自动检测 NVENC、QSV、AMF，失败回退 CPU
-- CPU/GPU 和硬件厂商手动选择，不支持的硬件自动禁用
-- 按源视频实际码率自动设置转码码率
+- 自动检测硬件解码、硬件滤镜和 NVENC/QSV/AMF 编码，失败回退 CPU
+- 图像比例、竖构图、旋转、镜像、显示比例和禁止放大
+- VBR、CBR、CQ，以及 Shutter Encoder 风格的 `auto`、好的、最好码率档位
+- 最大码率、目标文件大小、二次编码和最高质量
+- AAC、MP3、AC3、声道及采样率转换
 - 视频标题、ID、频道、平台和日期自定义命名
 - 独立封面下载模式，以及可选封面、字幕附属文件下载
 - 总任务与当前阶段双进度条，显示下载流、速度、大小和 ETA
@@ -31,9 +33,8 @@
 - YouTube、Instagram、X 链接在未配置代理时提示潜在网络问题
 - 代理设置支持自定义网址的异步网络连通性测试
 - 分析后按人工/自动来源选择字幕，支持多选及 SRT/VTT
-- 编码感知的 H.264 自动码率与未知编码体积保护
 - 自动编码后缀或自定义转码文件后缀
-- H.264 + AAC 文件直接保留，兼容流重封装，不兼容流按需转码
+- 满足当前图像、音频和 H.264 MP4 设置的文件直接保留，兼容流按需复制
 - 保存路径和设置便携记忆
 - 批量下载页面占位
 
@@ -66,13 +67,13 @@ Deno 是 yt-dlp 官方推荐的 YouTube JavaScript 挑战运行时，程序会�
 ## 构建便携版
 
 ```powershell
-.\build_release.ps1 -Version 0.5.2
+.\build_release.ps1 -Version 0.5.3
 ```
 
 脚本会先运行测试，再使用 PyInstaller 生成目录版程序，并创建：
 
 ```text
-release/VideoDownloadKing-v0.5.2-Windows-x64.zip
+release/VideoDownloadKing-v0.5.3-Windows-x64.zip
 ```
 
 ## 使用说明
@@ -81,15 +82,15 @@ release/VideoDownloadKing-v0.5.2-Windows-x64.zip
 
 1. 打开“抖音下载”页，粘贴视频/图集链接、短链接或分享文本。
 2. 视频默认使用自研引擎，也可切换为 `yt-dlp`；图集固定使用自研引擎。
-3. 选择画质、命名、封面和兼容 MP4 选项后开始下载。
+3. 选择画质、命名和封面选项后开始下载；抖音页面不执行额外视频编码。
 4. 风控或受限作品可在“设置 > 抖音登录”选择 Netscape `cookies.txt`。
 
 1. 输入 YouTube 单视频链接并点击“分析链接”。
 2. 选择“视频+音频”“仅视频”“仅音频”“仅封面”或“高级流组合”。
 3. 可使用 `{title}`、`{id}`、`{channel}`、`{platform}`、`{upload_date}`、`{download_date}` 自定义文件名。
 4. 分析完成后点击“选择字幕”，可搜索并多选人工或自动字幕，同时选择 SRT/VTT 输出格式。
-5. 兼容 MP4 区域可选择 CPU 或 GPU。GPU 厂商必须通过启动时实际编码检测才可选择。
-6. 自动码率按源编码与 CPU/GPU 类型补偿；未知编码使用质量模式和码率上限保护。转码文件默认追加 `_H264_AAC`。
+5. “视频编码”区域依次提供图像、比特率调整、音频设置、硬件加速和文件选项。
+6. VBR/CBR 可输入码率或选择 `auto`、好的、最好；CQ 使用 1–51 的质量值。转码文件默认追加编码后缀。
 7. 点击“开始下载”。若用户选择的 GPU 在实际视频上失败，程序会询问是否使用 CPU 继续。
 8. 登录限制视频可在设置中选择 Cookie 文件，或尝试从 Chrome/Edge 读取登录状态。
 

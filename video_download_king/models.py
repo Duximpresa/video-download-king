@@ -37,12 +37,29 @@ class ProxyConfig:
 class TranscodeConfig:
     enabled: bool = True
     keep_source: bool = False
-    processor: Literal["cpu", "gpu"] = "cpu"
-    hardware_vendor: Literal["nvidia", "intel", "amd"] = "nvidia"
-    rate_mode: Literal["auto", "quality", "bitrate"] = "auto"
+    scale: str = "源尺寸"
+    portrait: bool = False
+    rotation: Literal["0", "90", "-90", "180"] = "0"
+    mirror: bool = False
+    force_display_aspect: bool = False
+    no_upscale: bool = False
+    scale_algorithm: Literal["bicubic", "bilinear", "lanczos", "neighbor"] = "lanczos"
+    rate_mode: Literal["vbr", "cbr", "cq"] = "vbr"
+    video_bitrate: str = "auto"
+    maximum_bitrate: str = "auto"
     quality: int = 23
-    video_bitrate_kbps: int | None = None
-    audio_bitrate_kbps: int | None = None
+    target_size_mib: float | None = None
+    size_locked: bool = False
+    two_pass: bool = False
+    highest_quality: bool = False
+    audio_convert: bool = False
+    audio_codec: Literal["copy", "aac", "mp3", "ac3", "none"] = "aac"
+    audio_bitrate_kbps: int | None = 256
+    audio_channels: Literal["source", "mono", "stereo", "5.1"] = "source"
+    audio_sample_rate: int | None = 48000
+    video_encoder: Literal["cpu", "nvidia", "intel", "amd"] = "cpu"
+    hardware_decode: str = "auto"
+    hardware_filter: str = "auto"
     source_video_bitrate_kbps: int | None = None
     source_video_codec: str = ""
     suffix_mode: Literal["auto", "custom", "none"] = "auto"
@@ -248,5 +265,7 @@ class DouyinDownloadRequest:
     proxy: ProxyConfig = field(default_factory=ProxyConfig)
     timeout: int = 30
     download_thumbnail: bool = False
-    transcode: TranscodeConfig = field(default_factory=TranscodeConfig)
+    transcode: TranscodeConfig = field(
+        default_factory=lambda: TranscodeConfig(enabled=False)
+    )
     media: DouyinMediaInfo | None = None

@@ -7,7 +7,13 @@ import pytest
 
 from video_download_king.config import AppSettings, SettingsStore
 from video_download_king.formats import format_selector
-from video_download_king.models import DownloadRequest, MediaInfo, ProxyConfig, SubtitleSelection
+from video_download_king.models import (
+    DownloadRequest,
+    MediaInfo,
+    ProxyConfig,
+    SubtitleSelection,
+    TranscodeConfig,
+)
 from video_download_king.network_test import validate_test_url
 from video_download_king.platforms import (
     detect_platform,
@@ -146,6 +152,46 @@ def test_settings_round_trip_omits_password(tmp_path: Path) -> None:
     assert loaded.proxy.host == "localhost"
     assert loaded.subtitle_format == "vtt"
     assert loaded.show_all_automatic_subtitles
+
+
+def test_old_douyin_transcode_settings_are_ignored(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(
+        json.dumps(
+            {
+                "transcode": {"enabled": True, "quality": 18},
+                "douyin_transcode": {"enabled": True, "quality": 5},
+            }
+        ),
+        encoding="utf-8",
+    )
+    settings = SettingsStore(path).load()
+    assert settings.transcode.enabled
+    assert settings.transcode.quality == 18
+    assert not hasattr(settings, "douyin_transcode")
+
+
+def test_old_transcode_rate_and_hardware_settings_are_migrated(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(
+        json.dumps(
+            {
+                "transcode": {
+                    "rate_mode": "bitrate",
+                    "video_bitrate_kbps": 6000,
+                    "processor": "gpu",
+                    "hardware_vendor": "intel",
+                    "audio_bitrate_kbps": 192,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = SettingsStore(path).load().transcode
+    assert config.rate_mode == "vbr"
+    assert config.video_bitrate == "6000"
+    assert config.video_encoder == "intel"
+    assert config.audio_bitrate_kbps == 192
 
 
 def test_old_video_mode_is_migrated(tmp_path: Path) -> None:

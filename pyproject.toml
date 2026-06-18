@@ -1,6 +1,6 @@
 [project]
 name = "video-download-king"
-version = "0.5.2"
+version = "0.5.3"
 description = "Portable Windows 11 desktop downloader for YouTube and Douyin"
 requires-python = ">=3.12"
 dependencies = [

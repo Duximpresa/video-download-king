@@ -121,7 +121,7 @@ class DownloadWorker(QObject):
                     if not self._allow_fallback:
                         raise
                     self.log.emit("用户已确认，改用 CPU (libx264) 重试")
-                    self.request.transcode.processor = "cpu"
+                    self.request.transcode.video_encoder = "cpu"
                     result_path = self.transcoder.convert(
                         source,
                         self.request.transcode,
