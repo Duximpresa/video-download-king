@@ -1,4 +1,4 @@
-# Video Download King 0.5.1
+# Video Download King 0.5.2
 
 面向 Windows 11 的中文桌面视频下载器。支持 YouTube 单视频，以及抖音单视频和图集；视频可使用自研抖音引擎或 `yt-dlp`，并可通过 FFmpeg 输出兼容的 H.264 + AAC MP4。
 
@@ -27,6 +27,9 @@
 - 视频标题、ID、频道、平台和日期自定义命名
 - 独立封面下载模式，以及可选封面、字幕附属文件下载
 - 总任务与当前阶段双进度条，显示下载流、速度、大小和 ETA
+- 分析链接时显示忙碌进度，可随时取消卡住的分析任务
+- YouTube、Instagram、X 链接在未配置代理时提示潜在网络问题
+- 代理设置支持自定义网址的异步网络连通性测试
 - 分析后按人工/自动来源选择字幕，支持多选及 SRT/VTT
 - 编码感知的 H.264 自动码率与未知编码体积保护
 - 自动编码后缀或自定义转码文件后缀
@@ -63,13 +66,13 @@ Deno 是 yt-dlp 官方推荐的 YouTube JavaScript 挑战运行时，程序会�
 ## 构建便携版
 
 ```powershell
-.\build_release.ps1 -Version 0.5.1
+.\build_release.ps1 -Version 0.5.2
 ```
 
 脚本会先运行测试，再使用 PyInstaller 生成目录版程序，并创建：
 
 ```text
-release/VideoDownloadKing-v0.5.1-Windows-x64.zip
+release/VideoDownloadKing-v0.5.2-Windows-x64.zip
 ```
 
 ## 使用说明

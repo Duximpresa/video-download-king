@@ -48,6 +48,7 @@ from .models import (
     TaskResult,
 )
 from .paths import deno_path, ffmpeg_path, ffprobe_path, yt_dlp_path
+from .platforms import proxy_recommended_platform
 from .settings_dialog import SettingsDialog
 from .subtitle_dialog import SubtitleDialog
 from .transcode import FFmpegService
@@ -523,6 +524,19 @@ class MainWindow(QMainWindow):
     def _analyze(self) -> None:
         if self.thread:
             return
+        platform = proxy_recommended_platform(self.url_edit.text())
+        if platform and self.settings.proxy.scheme == "direct":
+            answer = QMessageBox.question(
+                self,
+                "可能无法连接",
+                f"检测到 {platform} 链接，但当前未设置代理。\n"
+                "在中国大陆网络环境下可能无法连接或分析超时。\n\n"
+                "是否仍要继续分析？",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if answer != QMessageBox.Yes:
+                return
         try:
             request = self._request_from_ui()
         except ValueError as exc:
@@ -534,6 +548,7 @@ class MainWindow(QMainWindow):
         self._update_subtitle_summary()
         self.download_button.setEnabled(False)
         self._set_busy(True, "正在分析链接...")
+        self._set_analysis_progress()
         worker = AnalyzeWorker(request)
         self._start_worker(worker, worker.run)
         worker.completed.connect(self._analysis_complete)
@@ -594,6 +609,7 @@ class MainWindow(QMainWindow):
         self._set_busy(False, self.progress_label.text())
 
     def _analysis_complete(self, media: MediaInfo) -> None:
+        self._reset_analysis_progress()
         self.media = media
         self.title_label.setText(media.title)
         duration = int(media.duration or 0)
@@ -649,6 +665,11 @@ class MainWindow(QMainWindow):
             table.setItem(row, 1, QTableWidgetItem("不追加音频"))
 
     def _task_failed(self, category: str, message: str) -> None:
+        self._reset_analysis_progress()
+        if category == "已取消":
+            self.progress_label.setText("分析已取消")
+            self._append_log("分析已取消")
+            return
         self.progress_label.setText(f"{category}：{message}")
         self._append_log(f"[{category}] {message}")
         QMessageBox.critical(self, f"分析失败：{category}", message)
@@ -704,6 +725,20 @@ class MainWindow(QMainWindow):
         self.download_button.setEnabled(not busy and self.media is not None)
         self.cancel_button.setEnabled(busy)
         self.progress_label.setText(text)
+
+    def _set_analysis_progress(self) -> None:
+        self.total_progress.setRange(0, 0)
+        self.total_progress.setFormat("正在分析...")
+        self.stage_progress.setRange(0, 0)
+        self.stage_progress.setFormat("等待网站响应...")
+
+    def _reset_analysis_progress(self) -> None:
+        self.total_progress.setRange(0, 100)
+        self.total_progress.setValue(0)
+        self.total_progress.setFormat("总任务 %p%")
+        self.stage_progress.setRange(0, 100)
+        self.stage_progress.setValue(0)
+        self.stage_progress.setFormat("当前阶段 %p%")
 
     def _mode_changed(self) -> None:
         mode = self.mode_combo.currentData()

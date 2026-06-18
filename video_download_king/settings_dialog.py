@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QThread, Qt
+from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -9,6 +10,8 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
     QLineEdit,
+    QLabel,
+    QProgressBar,
     QPushButton,
     QSpinBox,
     QTabWidget,
@@ -18,13 +21,16 @@ from PySide6.QtWidgets import (
 
 from .config import AppSettings
 from .models import ProxyConfig
+from .network_test import NetworkTestWorker
 
 
 class SettingsDialog(QDialog):
     def __init__(self, settings: AppSettings, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("设置")
-        self.resize(520, 300)
+        self.resize(560, 390)
+        self.network_test_thread: QThread | None = None
+        self.network_test_worker: NetworkTestWorker | None = None
 
         tabs = QTabWidget()
         tabs.addTab(self._build_proxy_tab(settings), "代理")
@@ -32,15 +38,15 @@ class SettingsDialog(QDialog):
         tabs.addTab(self._build_douyin_cookie_tab(settings), "抖音登录")
         tabs.addTab(self._build_network_tab(settings), "网络")
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
-        buttons.button(QDialogButtonBox.Save).setText("保存")
-        buttons.button(QDialogButtonBox.Cancel).setText("取消")
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
+        self.dialog_buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        self.dialog_buttons.button(QDialogButtonBox.Save).setText("保存")
+        self.dialog_buttons.button(QDialogButtonBox.Cancel).setText("取消")
+        self.dialog_buttons.accepted.connect(self.accept)
+        self.dialog_buttons.rejected.connect(self.reject)
 
         layout = QVBoxLayout(self)
         layout.addWidget(tabs)
-        layout.addWidget(buttons)
+        layout.addWidget(self.dialog_buttons)
 
     def _build_proxy_tab(self, settings: AppSettings) -> QWidget:
         page = QWidget()
@@ -70,6 +76,23 @@ class SettingsDialog(QDialog):
         form.addRow("端口", self.proxy_port)
         form.addRow("用户名", self.proxy_username)
         form.addRow("密码", self.proxy_password)
+        self.test_url = QLineEdit("https://www.google.com/")
+        self.test_url.setPlaceholderText("https://www.google.com/")
+        self.test_button = QPushButton("测试网络连通性")
+        self.test_button.clicked.connect(self._start_network_test)
+        self.test_progress = QProgressBar()
+        self.test_progress.setRange(0, 100)
+        self.test_progress.setValue(0)
+        self.test_progress.setTextVisible(False)
+        self.test_progress.setFixedHeight(8)
+        self.test_result = QLabel("使用当前页面中的代理设置进行测试，无需先保存。")
+        self.test_result.setWordWrap(True)
+        test_controls = QHBoxLayout()
+        test_controls.addWidget(self.test_url, 1)
+        test_controls.addWidget(self.test_button)
+        form.addRow("测试网址", test_controls)
+        form.addRow("", self.test_progress)
+        form.addRow("测试结果", self.test_result)
         return page
 
     def _build_cookie_tab(self, settings: AppSettings) -> QWidget:
@@ -123,14 +146,65 @@ class SettingsDialog(QDialog):
         if path:
             self.douyin_cookie_file.setText(path)
 
-    def apply(self, settings: AppSettings) -> None:
-        settings.proxy = ProxyConfig(
+    def _proxy_from_form(self) -> ProxyConfig:
+        return ProxyConfig(
             scheme=self.proxy_scheme.currentData(),
             host=self.proxy_host.text().strip(),
             port=self.proxy_port.value() or None,
             username=self.proxy_username.text().strip(),
             password=self.proxy_password.text(),
         )
+
+    def _start_network_test(self) -> None:
+        if self.network_test_thread:
+            return
+        try:
+            proxy = self._proxy_from_form()
+            proxy.url()
+        except ValueError as exc:
+            self.test_result.setText(f"连接失败：{exc}")
+            self.test_result.setStyleSheet("color:#dc2626")
+            return
+        self.test_button.setEnabled(False)
+        self.test_button.setText("测试中...")
+        self.dialog_buttons.setEnabled(False)
+        self.test_result.setText("正在连接目标网站...")
+        self.test_result.setStyleSheet("color:#475569")
+        self.test_progress.setRange(0, 0)
+        thread = QThread(self)
+        worker = NetworkTestWorker(self.test_url.text(), proxy, self.timeout.value())
+        self.network_test_thread = thread
+        self.network_test_worker = worker
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.completed.connect(self._network_test_complete)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(self._network_test_finished)
+        thread.start()
+
+    def _network_test_complete(self, success: bool, message: str) -> None:
+        self.test_result.setText(message)
+        self.test_result.setStyleSheet("color:#16803c" if success else "color:#dc2626")
+
+    def _network_test_finished(self) -> None:
+        self.network_test_thread = None
+        self.network_test_worker = None
+        self.test_button.setEnabled(True)
+        self.test_button.setText("测试网络连通性")
+        self.dialog_buttons.setEnabled(True)
+        self.test_progress.setRange(0, 100)
+        self.test_progress.setValue(100)
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        if self.network_test_thread:
+            event.ignore()
+            return
+        super().closeEvent(event)
+
+    def apply(self, settings: AppSettings) -> None:
+        settings.proxy = self._proxy_from_form()
         settings.cookie_file = self.cookie_file.text().strip()
         settings.cookie_browser = self.cookie_mode.currentData()
         settings.douyin_cookie_file = self.douyin_cookie_file.text().strip()

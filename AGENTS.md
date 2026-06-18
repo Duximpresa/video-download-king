@@ -2,7 +2,7 @@
 
 ## 项目概况
 
-Video Download King 是面向 64 位 Windows 11 的简体中文桌面视频下载器，当前版本为 `0.5.1`。
+Video Download King 是面向 64 位 Windows 11 的简体中文桌面视频下载器，当前版本为 `0.5.2`。
 
 - 技术栈：Python 3.12、PySide6、yt-dlp、FFmpeg、FFprobe、Deno、PyInstaller。
 - 当前平台范围：YouTube 单视频，以及抖音单视频/图集；批量页仅占位。
@@ -31,7 +31,7 @@ python -m pytest -q
 python -m compileall -q video_download_king tests
 
 # 构建发布包，版本号必须与代码版本一致
-.\build_release.ps1 -Version 0.5.1
+.\build_release.ps1 -Version 0.5.2
 ```
 
 发布脚本会运行测试、使用 PyInstaller 构建无控制台窗口的目录版程序，并生成：

@@ -6,7 +6,7 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QComboBox, QProgressBar, QPushButton, QScrollArea, QSpinBox
+from PySide6.QtWidgets import QApplication, QComboBox, QLineEdit, QProgressBar, QPushButton, QScrollArea, QSpinBox
 
 from video_download_king.config import AppSettings
 from video_download_king.config import SettingsStore
@@ -64,6 +64,34 @@ def test_main_window_has_two_progress_bars(monkeypatch) -> None:
     assert window.total_progress is not window.stage_progress
     assert len(window.findChildren(QProgressBar)) >= 2
     window.close()
+
+
+def test_analysis_progress_is_indeterminate_and_cancel_is_enabled(monkeypatch) -> None:
+    app()
+    monkeypatch.setattr(
+        "video_download_king.main_window.FFmpegService.detect_encoders",
+        lambda self, on_log=None: {"nvidia": False, "intel": False, "amd": False},
+    )
+    window = MainWindow()
+    window._set_busy(True, "正在分析链接...")
+    window._set_analysis_progress()
+    assert window.total_progress.maximum() == 0
+    assert window.stage_progress.maximum() == 0
+    assert window.cancel_button.isEnabled()
+    window._reset_analysis_progress()
+    assert window.total_progress.maximum() == 100
+    assert window.stage_progress.maximum() == 100
+    window.close()
+
+
+def test_settings_proxy_tab_has_custom_connectivity_test() -> None:
+    app()
+    dialog = SettingsDialog(AppSettings())
+    assert dialog.test_url.text() == "https://www.google.com/"
+    assert isinstance(dialog.test_url, QLineEdit)
+    assert dialog.test_button.text() == "测试网络连通性"
+    assert "无需先保存" in dialog.test_result.text()
+    dialog.close()
 
 
 def test_main_window_pages_are_scrollable_and_720p_sized(monkeypatch) -> None:

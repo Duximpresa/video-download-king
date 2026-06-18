@@ -223,6 +223,7 @@ class DouyinPage(QWidget):
         self.media = None
         self.download_button.setEnabled(False)
         self._set_busy(True, "正在分析抖音作品...")
+        self._set_analysis_progress()
         worker = DouyinAnalyzeWorker(request)
         self._start_worker(worker, worker.run)
         worker.completed.connect(self._analysis_complete)
@@ -261,6 +262,7 @@ class DouyinPage(QWidget):
         thread.start()
 
     def _analysis_complete(self, media: DouyinMediaInfo) -> None:
+        self._reset_analysis_progress()
         self.media = media
         self.title_label.setText(media.title)
         if media.media_type == "gallery":
@@ -326,6 +328,11 @@ class DouyinPage(QWidget):
             self.worker.resolve_gpu_fallback(answer == QMessageBox.Yes)
 
     def _task_failed(self, category: str, message: str) -> None:
+        self._reset_analysis_progress()
+        if category == "已取消":
+            self.progress_label.setText("分析已取消")
+            self._append_log("分析已取消")
+            return
         self.progress_label.setText(f"{category}：{message}")
         self._append_log(f"[{category}] {message}")
         QMessageBox.critical(self, f"抖音分析失败：{category}", message)
@@ -427,6 +434,20 @@ class DouyinPage(QWidget):
         self.download_button.setEnabled(not busy and self.media is not None)
         self.cancel_button.setEnabled(busy)
         self.progress_label.setText(text)
+
+    def _set_analysis_progress(self) -> None:
+        self.total_progress.setRange(0, 0)
+        self.total_progress.setFormat("正在分析...")
+        self.stage_progress.setRange(0, 0)
+        self.stage_progress.setFormat("等待网站响应...")
+
+    def _reset_analysis_progress(self) -> None:
+        self.total_progress.setRange(0, 100)
+        self.total_progress.setValue(0)
+        self.total_progress.setFormat("总任务 %p%")
+        self.stage_progress.setRange(0, 100)
+        self.stage_progress.setValue(0)
+        self.stage_progress.setFormat("当前阶段 %p%")
 
     def _thread_finished(self) -> None:
         self.thread = None

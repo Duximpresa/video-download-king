@@ -100,6 +100,8 @@ class DouyinAnalyzeWorker(QObject):
                 media = self._analyze_with(other)
                 self.request.download_engine = other
             self.completed.emit(media)
+        except ProcessCancelled:
+            self.failed.emit("已取消", "任务已取消")
         except Exception as exc:
             text = str(exc)
             self.failed.emit(categorize_error(text), text)

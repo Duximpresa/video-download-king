@@ -8,7 +8,12 @@ import pytest
 from video_download_king.config import AppSettings, SettingsStore
 from video_download_king.formats import format_selector
 from video_download_king.models import DownloadRequest, MediaInfo, ProxyConfig, SubtitleSelection
-from video_download_king.platforms import detect_platform, validate_first_version_url
+from video_download_king.network_test import validate_test_url
+from video_download_king.platforms import (
+    detect_platform,
+    proxy_recommended_platform,
+    validate_first_version_url,
+)
 from video_download_king.utils import (
     render_filename_template,
     has_matching_language,
@@ -73,6 +78,29 @@ def test_platform_scope() -> None:
     assert detect_platform("https://youtu.be/x") == "YouTube"
     with pytest.raises(ValueError):
         validate_first_version_url("https://example.com/video")
+
+
+@pytest.mark.parametrize(
+    ("url", "platform"),
+    [
+        ("https://www.youtube.com/watch?v=x", "YouTube"),
+        ("youtu.be/x", "YouTube"),
+        ("https://www.instagram.com/reel/x/", "Instagram"),
+        ("https://x.com/user/status/1", "X"),
+        ("https://twitter.com/user/status/1", "X"),
+    ],
+)
+def test_proxy_recommendation_for_common_overseas_platforms(
+    url: str, platform: str
+) -> None:
+    assert proxy_recommended_platform(url) == platform
+    assert proxy_recommended_platform("https://www.douyin.com/video/1") is None
+
+
+def test_connectivity_test_url_validation() -> None:
+    assert validate_test_url("https://www.google.com/") == "https://www.google.com/"
+    with pytest.raises(ValueError):
+        validate_test_url("google.com")
 
 
 def test_filename_and_unique_path(tmp_path: Path) -> None:

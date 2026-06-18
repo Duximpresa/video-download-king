@@ -2,7 +2,7 @@
 
 ## 项目定位
 
-Video Download King 是一个面向 64 位 Windows 11 的简体中文桌面视频下载器。项目当前版本为 `0.5.1`，核心目标是提供可直接解压运行的便携式下载工具，不依赖用户系统 PATH、系统 FFmpeg 或本机 Python 环境。
+Video Download King 是一个面向 64 位 Windows 11 的简体中文桌面视频下载器。项目当前版本为 `0.5.2`，核心目标是提供可直接解压运行的便携式下载工具，不依赖用户系统 PATH、系统 FFmpeg 或本机 Python 环境。
 
 当前支持范围包括：
 
@@ -146,21 +146,25 @@ git diff --check
 构建发布包：
 
 ```powershell
-.\build_release.ps1 -Version 0.5.1
+.\build_release.ps1 -Version 0.5.2
 ```
 
 发布脚本会运行测试、使用 PyInstaller 构建无控制台窗口的目录版程序，并生成：
 
 ```text
-release/VideoDownloadKing-v0.5.1-Windows-x64.zip
+release/VideoDownloadKing-v0.5.2-Windows-x64.zip
 ```
 
 发布包和构建目录不提交到 Git。根目录 `VideoDownloadKing.spec` 是受控的 PyInstaller 构建配置，需要提交。
 
 ## 当前版本状态
 
-`0.5.1` 已完成：
+`0.5.2` 已完成：
 
+- 分析链接时显示忙碌进度并支持取消。
+- 分析取消后按正常取消状态收尾，不弹出失败对话框。
+- YouTube、Instagram、X 链接在直连模式下提示潜在网络问题。
+- 代理设置支持自定义网址的异步连通性测试。
 - 720p / 1080p 窗口滚动适配。
 - PyInstaller 固定 spec 构建。
 - Qt 发布包裁剪和 ZIP 体积优化。

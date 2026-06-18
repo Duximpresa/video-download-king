@@ -36,6 +36,8 @@ class AnalyzeWorker(QObject):
                 on_log=self.log.emit,
             )
             self.completed.emit(media)
+        except ProcessCancelled:
+            self.failed.emit("已取消", "任务已取消")
         except Exception as exc:
             text = str(exc)
             self.failed.emit(categorize_error(text), text)

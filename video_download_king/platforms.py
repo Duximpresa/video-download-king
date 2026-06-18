@@ -9,6 +9,14 @@ DOUYIN_URL_RE = re.compile(
     re.IGNORECASE,
 )
 
+PROXY_RECOMMENDED_HOSTS = {
+    "youtube.com",
+    "youtu.be",
+    "instagram.com",
+    "x.com",
+    "twitter.com",
+}
+
 
 def detect_platform(url: str) -> str:
     candidate = extract_douyin_url(url) or url
@@ -20,6 +28,28 @@ def detect_platform(url: str) -> str:
     if host == "douyin.com" or host.endswith(".douyin.com") or host.endswith(".iesdouyin.com"):
         return "Douyin"
     return "未知平台"
+
+
+def proxy_recommended_platform(url: str) -> str | None:
+    candidate = (url or "").strip()
+    if candidate and "://" not in candidate:
+        candidate = f"https://{candidate}"
+    host = (urlparse(candidate).hostname or "").lower()
+    matched = next(
+        (
+            domain
+            for domain in PROXY_RECOMMENDED_HOSTS
+            if host == domain or host.endswith(f".{domain}")
+        ),
+        None,
+    )
+    if not matched:
+        return None
+    if matched in {"youtube.com", "youtu.be"}:
+        return "YouTube"
+    if matched == "instagram.com":
+        return "Instagram"
+    return "X"
 
 
 def validate_first_version_url(url: str) -> str:
