@@ -37,6 +37,8 @@ from PySide6.QtWidgets import (
 
 from .config import AppSettings, SettingsStore
 from .douyin_page import DouyinPage
+from .bilibili_page import BilibiliPage
+from .naming_widgets import template_button_widget
 from .formats import audio_formats, video_formats
 from .models import (
     DownloadRequest,
@@ -104,6 +106,8 @@ class MainWindow(QMainWindow):
         tabs.addTab(self._build_single_tab(), "单链接下载")
         self.douyin_page = DouyinPage(self.settings, self.store, self)
         tabs.addTab(self._make_scroll_page(self.douyin_page), "抖音下载")
+        self.bilibili_page = BilibiliPage(self.settings, self.store, self)
+        tabs.addTab(self._make_scroll_page(self.bilibili_page), "B站下载")
         tabs.addTab(self._make_scroll_page(self._build_batch_tab()), "批量下载")
         tabs.currentChanged.connect(lambda _index: self._sync_scroll_pages())
         self.setCentralWidget(tabs)
@@ -146,7 +150,7 @@ class MainWindow(QMainWindow):
         url_row = QGridLayout()
         url_row.setHorizontalSpacing(6)
         self.url_edit = QLineEdit()
-        self.url_edit.setPlaceholderText("粘贴 YouTube 单视频链接")
+        self.url_edit.setPlaceholderText("粘贴 YouTube 单视频或 X 单条帖子链接")
         self.analyze_button = QPushButton("分析链接")
         self.analyze_button.clicked.connect(self._analyze)
         self.stop_analysis_button = QPushButton("停止分析")
@@ -338,19 +342,15 @@ class MainWindow(QMainWindow):
         layout.addWidget(QLabel("命名模板"), 0, 0)
         layout.addWidget(self.filename_template, 0, 1, 1, 4)
 
-        fields = QHBoxLayout()
-        for label, token in (
+        fields = template_button_widget(self.filename_template, (
             ("标题", "{title}"),
             ("ID", "{id}"),
             ("频道", "{channel}"),
             ("平台", "{platform}"),
             ("上传日期", "{upload_date}"),
             ("下载日期", "{download_date}"),
-        ):
-            button = QPushButton(label)
-            button.clicked.connect(lambda _checked=False, value=token: self.filename_template.insert(value))
-            fields.addWidget(button)
-        layout.addLayout(fields, 1, 0, 1, 3)
+        ))
+        layout.addWidget(fields, 1, 0, 1, 3)
 
         self.download_thumbnail_check = QCheckBox("下载封面")
         self.subtitle_button = QPushButton("选择字幕...")
@@ -491,7 +491,7 @@ class MainWindow(QMainWindow):
     def _request_from_ui(self) -> DownloadRequest:
         output = Path(self.path_edit.text().strip()).expanduser()
         if not self.url_edit.text().strip():
-            raise ValueError("请先输入 YouTube 视频网址")
+            raise ValueError("请先输入 YouTube 视频或 X 帖子网址")
         if not self.path_edit.text().strip():
             raise ValueError("请选择保存目录")
         template = self.filename_template.text().strip() or "{title} [{id}]"
@@ -678,7 +678,7 @@ class MainWindow(QMainWindow):
         self.title_label.setText(media.title)
         duration = int(media.duration or 0)
         self.meta_label.setText(
-            f"平台：YouTube    频道：{media.channel or '未知'}    "
+            f"平台：{media.platform or '未知'}    频道：{media.channel or '未知'}    "
             f"时长：{duration // 60:02d}:{duration % 60:02d}    ID：{media.media_id}"
         )
         self._populate_table(self.video_table, video_formats(media.formats))
@@ -863,7 +863,7 @@ class MainWindow(QMainWindow):
         self.store.save(self.settings)
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        if self.thread or self.douyin_page.is_busy():
+        if self.thread or self.douyin_page.is_busy() or self.bilibili_page.is_busy():
             answer = QMessageBox.question(self, "任务运行中", "任务仍在运行，确定要取消并退出吗？")
             if answer != QMessageBox.Yes:
                 event.ignore()
@@ -873,5 +873,6 @@ class MainWindow(QMainWindow):
                 self.thread.quit()
                 self.thread.wait(3000)
             self.douyin_page.shutdown()
+            self.bilibili_page.shutdown()
         self._save_ui_settings()
         event.accept()

@@ -27,6 +27,7 @@ from .config import AppSettings, SettingsStore
 from .douyin_workers import DouyinAnalyzeWorker, DouyinDownloadWorker
 from .models import DouyinDownloadRequest, DouyinMediaInfo, TaskProgress, TaskResult
 from .utils import render_filename_template
+from .naming_widgets import template_button_widget
 
 
 class DouyinPage(QWidget):
@@ -136,8 +137,7 @@ class DouyinPage(QWidget):
         self.preview_label.setWordWrap(True)
         download_form.addWidget(QLabel("命名模板"), 0, 0)
         download_form.addWidget(self.filename_template, 0, 1, 1, 7)
-        fields = QGridLayout()
-        for index, (label, token) in enumerate((
+        fields = template_button_widget(self.filename_template, (
             ("标题", "{title}"),
             ("ID", "{id}"),
             ("作者", "{author}"),
@@ -147,12 +147,8 @@ class DouyinPage(QWidget):
             ("类型", "{type}"),
             ("序号", "{index}"),
             ("资源", "{asset}"),
-        )):
-            button = QPushButton(label)
-            button.clicked.connect(lambda _checked=False, value=token: self.filename_template.insert(value))
-            fields.addWidget(button, index // 5, index % 5)
-            fields.setColumnStretch(index % 5, 1)
-        download_form.addLayout(fields, 1, 1, 1, 7)
+        ))
+        download_form.addWidget(fields, 1, 1, 1, 7)
         download_form.addWidget(self.download_thumbnail_check, 2, 1, 1, 7)
         download_form.addWidget(QLabel("文件名"), 3, 0)
         download_form.addWidget(self.preview_label, 3, 1, 1, 7)

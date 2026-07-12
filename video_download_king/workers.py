@@ -5,7 +5,7 @@ from threading import Event
 
 from PySide6.QtCore import QObject, Signal, Slot
 
-from .errors import categorize_error
+from .errors import categorize_error, user_facing_error
 from .models import DownloadRequest, MediaInfo, TaskProgress, TaskResult
 from .platforms import validate_first_version_url
 from .processes import ProcessCancelled
@@ -40,7 +40,8 @@ class AnalyzeWorker(QObject):
             self.failed.emit("已取消", "任务已取消")
         except Exception as exc:
             text = str(exc)
-            self.failed.emit(categorize_error(text), text)
+            self.log.emit(text)
+            self.failed.emit(categorize_error(text), user_facing_error(text))
         finally:
             self.finished.emit()
 
@@ -68,6 +69,8 @@ class DownloadWorker(QObject):
     def run(self) -> None:
         try:
             platform = validate_first_version_url(self.request.url)
+            if platform not in {"YouTube", "X"}:
+                raise ValueError("请使用独立的【B站下载】页面")
             output_dir = self.request.output_dir
             if self.request.classify_by_platform:
                 output_dir = output_dir / platform
@@ -142,7 +145,9 @@ class DownloadWorker(QObject):
             self.completed.emit(TaskResult(False, "任务已取消", error_category="已取消"))
         except Exception as exc:
             text = str(exc)
-            self.completed.emit(TaskResult(False, text, error_category=categorize_error(text)))
+            self.completed.emit(
+                TaskResult(False, user_facing_error(text), error_category=categorize_error(text))
+            )
         finally:
             self.finished.emit()
 

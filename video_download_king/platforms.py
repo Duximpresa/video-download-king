@@ -25,6 +25,10 @@ def detect_platform(url: str) -> str:
     host = (urlparse(candidate).hostname or "").lower()
     if host == "youtu.be" or host.endswith("youtube.com"):
         return "YouTube"
+    if host == "b23.tv" or host == "bilibili.com" or host.endswith(".bilibili.com"):
+        return "哔哩哔哩"
+    if host == "x.com" or host.endswith(".x.com") or host == "twitter.com" or host.endswith(".twitter.com"):
+        return "X"
     if host == "douyin.com" or host.endswith(".douyin.com") or host.endswith(".iesdouyin.com"):
         return "Douyin"
     return "未知平台"
@@ -54,8 +58,12 @@ def proxy_recommended_platform(url: str) -> str | None:
 
 def validate_first_version_url(url: str) -> str:
     platform = detect_platform(url)
-    if platform != "YouTube":
-        raise ValueError("第一版仅支持 YouTube 单链接")
+    if platform not in {"YouTube", "哔哩哔哩", "X"}:
+        raise ValueError("仅支持 YouTube、X 或哔哩哔哩视频链接")
+    if platform == "X":
+        path = urlparse(url if "://" in url else f"https://{url}").path
+        if not re.fullmatch(r"/[^/]+/status/\d+(?:/video/\d+)?/?", path, re.IGNORECASE):
+            raise ValueError("X 平台仅支持单条帖子或帖子内视频链接")
     return platform
 
 

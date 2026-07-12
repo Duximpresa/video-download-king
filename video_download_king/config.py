@@ -42,6 +42,7 @@ class AppSettings:
     cookie_file: str = ""
     cookie_browser: str = ""
     douyin_cookie_file: str = ""
+    bilibili_cookie_file: str = ""
     douyin_classify_by_author: bool = False
     timeout: int = 30
     output_mode: str = "video_audio"
@@ -79,6 +80,7 @@ class SettingsStore:
                 cookie_file=data.get("cookie_file", ""),
                 cookie_browser=data.get("cookie_browser", ""),
                 douyin_cookie_file=data.get("douyin_cookie_file", ""),
+                bilibili_cookie_file=data.get("bilibili_cookie_file", ""),
                 douyin_classify_by_author=bool(data.get("douyin_classify_by_author", False)),
                 timeout=int(data.get("timeout", 30)),
                 output_mode=mode,

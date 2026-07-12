@@ -145,6 +145,15 @@ class MediaInfo:
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> "MediaInfo":
         extractor = data.get("extractor_key") or data.get("extractor") or ""
+        extractor_lower = extractor.lower()
+        if "youtube" in extractor_lower:
+            platform = "YouTube"
+        elif "bilibili" in extractor_lower:
+            platform = "哔哩哔哩"
+        elif "twitter" in extractor_lower or extractor_lower == "x":
+            platform = "X"
+        else:
+            platform = extractor
         return cls(
             webpage_url=data.get("webpage_url") or data.get("original_url") or "",
             title=data.get("title") or "未命名视频",
@@ -152,7 +161,7 @@ class MediaInfo:
             extractor=extractor,
             channel=data.get("channel") or data.get("uploader") or "",
             upload_date=data.get("upload_date") or "",
-            platform="YouTube" if "youtube" in extractor.lower() else extractor,
+            platform=platform,
             duration=data.get("duration"),
             thumbnail=data.get("thumbnail") or "",
             is_live=bool(data.get("is_live")),
@@ -269,3 +278,71 @@ class DouyinDownloadRequest:
         default_factory=lambda: TranscodeConfig(enabled=False)
     )
     media: DouyinMediaInfo | None = None
+
+
+@dataclass(slots=True, frozen=True)
+class BilibiliSubtitleInfo:
+    language: str
+    name: str
+    url: str
+
+
+@dataclass(slots=True, frozen=True)
+class BilibiliStreamInfo:
+    kind: Literal["video", "audio"]
+    stream_id: int
+    label: str
+    codec: str = ""
+    width: int | None = None
+    height: int | None = None
+    fps: str = ""
+    bandwidth: int | None = None
+    size: int | None = None
+    dynamic_range: str = ""
+    urls: tuple[str, ...] = ()
+
+
+@dataclass(slots=True)
+class BilibiliPartInfo:
+    cid: int
+    page: int
+    title: str
+    duration: float | None = None
+    selected: bool = False
+    video_streams: list[BilibiliStreamInfo] = field(default_factory=list)
+    audio_streams: list[BilibiliStreamInfo] = field(default_factory=list)
+    subtitles: list[BilibiliSubtitleInfo] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class BilibiliMediaInfo:
+    webpage_url: str
+    bvid: str
+    aid: int
+    title: str
+    uploader: str = ""
+    upload_date: str = ""
+    thumbnail: str = ""
+    description: str = ""
+    parts: list[BilibiliPartInfo] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class BilibiliDownloadRequest:
+    url: str
+    output_dir: Path
+    selected_pages: list[int] = field(default_factory=list)
+    video_quality: int | None = None
+    video_codec: str = "avc"
+    audio_quality: int | None = None
+    filename_template: str = "{title} P{page} {part_title} [{bvid}]"
+    classify_by_platform: bool = True
+    cookie_file: str = ""
+    proxy: ProxyConfig = field(default_factory=ProxyConfig)
+    timeout: int = 30
+    download_cover: bool = False
+    download_subtitles: bool = False
+    selected_subtitles: list[str] = field(default_factory=list)
+    download_danmaku: bool = False
+    download_metadata: bool = False
+    media: BilibiliMediaInfo | None = None

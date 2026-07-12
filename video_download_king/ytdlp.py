@@ -105,8 +105,11 @@ class YtDlpService:
         timeout: int = 30,
         on_log: LogCallback | None = None,
     ) -> MediaInfo:
-        if detect_platform(url) not in {"YouTube", "Douyin"}:
-            raise ValueError("仅支持 YouTube 或抖音单作品链接")
+        platform = detect_platform(url)
+        if platform not in {"YouTube", "X", "Douyin"}:
+            raise ValueError("仅支持 YouTube、X 或抖音单作品链接")
+        if platform == "X":
+            validate_first_version_url(url)
         request = DownloadRequest(
             url=url,
             output_dir=Path("."),

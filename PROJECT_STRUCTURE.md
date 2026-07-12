@@ -68,12 +68,16 @@ video-download-king/
 | `app.py` | 创建 `QApplication`，设置应用名称、组织名、全局图标和 Qt 样式表，实例化并显示 `MainWindow`。 |
 | `config.py` | 定义 `AppSettings` 和 `SettingsStore`。负责加载、迁移、保存 `config/settings.json`；确保代理密码不落盘；配置损坏时备份并恢复默认值；分别保存 YouTube 与抖音转码配置。 |
 | `douyin.py` | 抖音自研服务层。负责提取作品 ID、加载 Netscape Cookie、设置代理、构造签名请求、解析视频/图集/实况资源、按画质选择资源、异步下载、进度报告和原子文件提交。 |
+| `bilibili.py` | B站自研服务层。负责 BV/AV/b23 提取、WBI 签名、稿件/分P/DASH 解析、选流、Range 分片、CDN 回退、附属文件和 FFmpeg 无转码合并。 |
+| `bilibili_page.py` | 独立 B站下载页面。提供多分P勾选、画质/编码/音质、命名模板、附属文件、双进度条、日志和取消。 |
+| `bilibili_workers.py` | B站分析与下载的 Qt 后台 worker，负责结构化信号、错误分类和单调进度转发。 |
 | `douyin_page.py` | 抖音下载页面。负责链接、引擎、画质、保存路径、作者分类、命名模板、封面和紧凑转码面板的 UI；创建请求；启动 worker；处理进度、取消、缩略图和结果提示。 |
 | `douyin_workers.py` | 抖音后台任务编排。提供分析 worker 和下载 worker；管理自研引擎与 yt-dlp 双引擎、用户确认后的引擎回退、进度区间映射、转码和 GPU 失败回退。 |
 | `errors.py` | 将外部错误文本归类为稳定的中文错误类别，例如网络、代理、Cookie/登录、FFmpeg、平台限制和已取消。 |
 | `formats.py` | 过滤并排序视频流、音频流，根据输出模式和画质配置生成 yt-dlp `--format` 选择表达式。 |
-| `main_window.py` | 应用主窗口和 YouTube 单链接页面。负责菜单、标签页、响应式滚动布局、格式表格、字幕入口、文件名预览、设置加载、硬件检测、线程启动、进度显示、取消和关闭流程。批量下载占位页也由此模块创建。 |
+| `main_window.py` | 应用主窗口和 YouTube/X 单链接页面。负责菜单、标签页、响应式滚动布局、格式表格、字幕入口、文件名预览、设置加载、硬件检测、线程启动、进度显示、取消和关闭流程。批量下载占位页也由此模块创建。 |
 | `models.py` | 项目的稳定数据模型层。定义代理、转码、格式、字幕、媒体信息、下载请求、任务进度、任务结果、下载产物和抖音资源等 dataclass。UI 与服务层通过这些对象交换数据。 |
+| `naming_widgets.py` | YouTube、抖音和 B站页面共享的命名变量按钮及自动换行布局。 |
 | `network_test.py` | 设置页的网络连通性测试。校验测试 URL，支持直连、HTTP/HTTPS 和 SOCKS 代理，通过异步请求返回 HTTP 状态和耗时，并用 Qt worker 避免阻塞界面。 |
 | `paths.py` | 统一解析开发态和 PyInstaller 冻结态路径，包括应用根目录、运行时、yt-dlp、FFmpeg、FFprobe、Deno 和配置文件位置。 |
 | `platforms.py` | 平台识别和链接校验。识别 YouTube/抖音，提取抖音分享文本中的链接，校验当前支持范围，并对 YouTube、Instagram、X 等平台提供未配置代理提醒判断。 |
@@ -122,6 +126,7 @@ video-download-king/
 | --- | --- |
 | `test_core.py` | 核心数据与命令测试：代理 URL、密码不持久化、格式选择、平台范围、海外平台代理提醒、测试 URL、文件名与模板、配置迁移、YouTube/抖音转码配置隔离、字幕命令和双流进度。 |
 | `test_douyin.py` | 抖音专项测试：链接提取、Cookie 读取、SOCKS 代理、画质选择、视频/图集/实况解析、无水印资源优选、yt-dlp 请求映射和作者目录清理。 |
+| `test_bilibili.py` | B站专项测试：链接/标识、WBI 签名、选流回退、Range/顺序下载降级和页面请求。 |
 | `test_packaging.py` | 发布打包测试：确认发布脚本使用受控 spec，并只裁剪非必要 Qt 平台插件。 |
 | `test_processes.py` | Windows 子进程测试：确认使用隐藏窗口和新进程组标志，避免弹出 CMD。 |
 | `test_transcode.py` | 转码测试：兼容性决策、CPU/GPU 参数、源码率优先级、编码感知倍率、未知编码保护和输出后缀。 |

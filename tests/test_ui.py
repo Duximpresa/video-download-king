@@ -180,7 +180,7 @@ def test_pages_follow_viewport_after_widening_and_shrinking(monkeypatch) -> None
     window.show()
     QApplication.processEvents()
     tabs = window.centralWidget()
-    for index in (0, 1):
+    for index in (0, 1, 2):
         tabs.setCurrentIndex(index)
         QApplication.processEvents()
         window.resize(1600, 760)
@@ -196,7 +196,13 @@ def test_pages_follow_viewport_after_widening_and_shrinking(monkeypatch) -> None
             assert isinstance(scroll, QScrollArea)
             assert scroll.widget().width() == scroll.viewport().width()
             assert scroll.horizontalScrollBar().maximum() == 0
-        analyze = window.analyze_button if index == 0 else window.douyin_page.analyze_button
+        analyze = (
+            window.analyze_button
+            if index == 0
+            else window.douyin_page.analyze_button
+            if index == 1
+            else window.bilibili_page.analyze_button
+        )
         assert analyze.isVisible()
     window.close()
 
@@ -239,6 +245,7 @@ def test_transcode_panel_exists_only_on_single_download_page(monkeypatch) -> Non
     assert isinstance(window.transcode_panel, TranscodePanel)
     assert not window.transcode_panel.compact
     assert not hasattr(window.douyin_page, "transcode_panel")
+    assert not hasattr(window.bilibili_page, "transcode_panel")
     window.close()
 
 

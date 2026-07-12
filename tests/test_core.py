@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from video_download_king.config import AppSettings, SettingsStore
+from video_download_king.errors import categorize_error, user_facing_error
 from video_download_king.formats import format_selector
 from video_download_king.models import (
     DownloadRequest,
@@ -82,8 +83,54 @@ def test_video_only_selector() -> None:
 def test_platform_scope() -> None:
     assert detect_platform("https://www.youtube.com/watch?v=x") == "YouTube"
     assert detect_platform("https://youtu.be/x") == "YouTube"
+    assert detect_platform("https://www.bilibili.com/video/BV1xx411c7mD") == "哔哩哔哩"
+    assert detect_platform("https://b23.tv/example") == "哔哩哔哩"
+    assert detect_platform("https://x.com/openai/status/123456") == "X"
+    assert detect_platform("https://twitter.com/openai/status/123456") == "X"
+    assert validate_first_version_url("https://www.bilibili.com/video/BV1xx411c7mD") == "哔哩哔哩"
+    assert validate_first_version_url("https://x.com/openai/status/123456") == "X"
+    assert validate_first_version_url("https://x.com/bytopux/status/2076210959723466833/video/1") == "X"
+    assert validate_first_version_url("https://twitter.com/openai/status/123456/video/2") == "X"
+    with pytest.raises(ValueError, match="单条帖子或帖子内视频"):
+        validate_first_version_url("https://x.com/openai")
+    with pytest.raises(ValueError, match="单条帖子或帖子内视频"):
+        validate_first_version_url("https://x.com/search?q=video")
+    with pytest.raises(ValueError, match="单条帖子或帖子内视频"):
+        validate_first_version_url("https://x.com/i/spaces/123456")
     with pytest.raises(ValueError):
         validate_first_version_url("https://example.com/video")
+
+
+def test_bilibili_media_info_uses_chinese_platform_name() -> None:
+    media = MediaInfo.from_json(
+        {
+            "extractor_key": "BiliBili",
+            "webpage_url": "https://www.bilibili.com/video/BV1xx411c7mD",
+            "title": "测试视频",
+            "id": "BV1xx411c7mD",
+        }
+    )
+    assert media.platform == "哔哩哔哩"
+
+
+def test_twitter_media_info_uses_x_platform_name() -> None:
+    media = MediaInfo.from_json(
+        {
+            "extractor_key": "Twitter",
+            "webpage_url": "https://x.com/user/status/123",
+            "title": "测试帖子",
+            "id": "123",
+        }
+    )
+    assert media.platform == "X"
+
+
+def test_bilibili_412_has_actionable_cookie_guidance() -> None:
+    error = "ERROR: [BiliBili] HTTP Error 412: Precondition Failed"
+    assert categorize_error(error) == "Cookie/风控"
+    message = user_facing_error(error)
+    assert "设置 > 网站登录" in message
+    assert "完全退出浏览器" in message
 
 
 @pytest.mark.parametrize(

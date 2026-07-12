@@ -1,5 +1,12 @@
 # 第三方组件说明
 
+## Bili23-Downloader 研究参考
+
+- 项目：https://github.com/ScottSloan/Bili23-Downloader
+- 许可证：GPL-3.0
+- 用途：研究其公开的 B站 WBI、DASH、Range 分片和音视频合并链路。
+- 本项目未复制或捆绑 Bili23-Downloader 源代码；B站模型、网络、下载、进度、UI 和文件处理均为独立实现。
+
 ## yt-dlp
 
 - 项目：https://github.com/yt-dlp/yt-dlp

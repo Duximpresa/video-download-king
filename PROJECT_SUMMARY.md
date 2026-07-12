@@ -67,13 +67,16 @@ Video Download King 是一个面向 64 位 Windows 11 的简体中文桌面视�
 ```text
 main.py                         程序入口
 video_download_king/app.py      QApplication、全局样式和主窗口启动
-video_download_king/main_window.py
+video_download_king/main_window.py   YouTube/X 单链接页面与主窗口
                                 单链接页、主窗口、线程编排和 UI 状态联动
 video_download_king/douyin_page.py
                                 抖音下载页和抖音 UI 状态
 video_download_king/transcode_panel.py
                                 可复用兼容 MP4 配置面板
 video_download_king/douyin.py   抖音接口、签名、资源选择和原子下载
+video_download_king/bilibili.py B站 WBI/DASH、分片下载、附属文件和无转码合并
+video_download_king/bilibili_page.py  独立 B站下载页面
+video_download_king/bilibili_workers.py  B站后台任务
 video_download_king/douyin_workers.py
                                 抖音双引擎后台任务和失败回退编排
 video_download_king/ytdlp.py    yt-dlp 分析、下载、字幕/封面和进度解析

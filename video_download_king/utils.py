@@ -26,10 +26,11 @@ def unique_path(path: Path) -> Path:
 
 
 def unique_media_stem(directory: Path, stem: str) -> str:
-    if not any(directory.glob(f"{stem}.*")):
+    existing_stems = {path.stem for path in directory.iterdir()} if directory.is_dir() else set()
+    if stem not in existing_stems:
         return stem
     index = 1
-    while any(directory.glob(f"{stem} ({index}).*")):
+    while f"{stem} ({index})" in existing_stems:
         index += 1
     return f"{stem} ({index})"
 
@@ -45,6 +46,11 @@ TEMPLATE_FIELDS = {
     "type",
     "index",
     "asset",
+    "bvid",
+    "aid",
+    "uploader",
+    "page",
+    "part_title",
 }
 TEMPLATE_TOKEN = re.compile(r"\{([a-z_]+)\}")
 
@@ -62,6 +68,7 @@ def render_filename_template(template: str, values: dict[str, str]) -> str:
     data = {key: values.get(key, "") for key in TEMPLATE_FIELDS}
     data["author"] = data["author"] or data["channel"]
     data["channel"] = data["channel"] or data["author"]
+    data["uploader"] = data["uploader"] or data["author"] or data["channel"]
     data["upload_date"] = display_date(data["upload_date"])
     data["download_date"] = data["download_date"] or datetime.now().strftime("%Y-%m-%d")
     rendered = TEMPLATE_TOKEN.sub(lambda match: data.get(match.group(1), ""), template)

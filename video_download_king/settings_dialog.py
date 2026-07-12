@@ -34,8 +34,9 @@ class SettingsDialog(QDialog):
 
         tabs = QTabWidget()
         tabs.addTab(self._build_proxy_tab(settings), "代理")
-        tabs.addTab(self._build_cookie_tab(settings), "YouTube 登录")
+        tabs.addTab(self._build_cookie_tab(settings), "YouTube / X 登录")
         tabs.addTab(self._build_douyin_cookie_tab(settings), "抖音登录")
+        tabs.addTab(self._build_bilibili_cookie_tab(settings), "B站登录")
         tabs.addTab(self._build_network_tab(settings), "网络")
 
         self.dialog_buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
@@ -136,6 +137,21 @@ class SettingsDialog(QDialog):
         form.addRow("Netscape cookies.txt", row)
         return page
 
+    def _build_bilibili_cookie_tab(self, settings: AppSettings) -> QWidget:
+        page = QWidget()
+        form = QFormLayout(page)
+        self.bilibili_cookie_file = QLineEdit(settings.bilibili_cookie_file)
+        browse = QPushButton("浏览...")
+        browse.clicked.connect(self._browse_bilibili_cookie)
+        row = QHBoxLayout()
+        row.addWidget(self.bilibili_cookie_file)
+        row.addWidget(browse)
+        form.addRow("Netscape cookies.txt", row)
+        hint = QLabel("仅用于自研 B站引擎。未设置时会兼容读取旧的 YouTube/网站 cookies.txt；会员或受限画质取决于账号的正常播放权限。")
+        hint.setWordWrap(True)
+        form.addRow("说明", hint)
+        return page
+
     def _browse_cookie(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "选择 cookies.txt", "", "文本文件 (*.txt);;所有文件 (*)")
         if path:
@@ -145,6 +161,11 @@ class SettingsDialog(QDialog):
         path, _ = QFileDialog.getOpenFileName(self, "选择抖音 cookies.txt", "", "文本文件 (*.txt);;所有文件 (*)")
         if path:
             self.douyin_cookie_file.setText(path)
+
+    def _browse_bilibili_cookie(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "选择 B站 cookies.txt", "", "文本文件 (*.txt);;所有文件 (*)")
+        if path:
+            self.bilibili_cookie_file.setText(path)
 
     def _proxy_from_form(self) -> ProxyConfig:
         return ProxyConfig(
@@ -208,4 +229,5 @@ class SettingsDialog(QDialog):
         settings.cookie_file = self.cookie_file.text().strip()
         settings.cookie_browser = self.cookie_mode.currentData()
         settings.douyin_cookie_file = self.douyin_cookie_file.text().strip()
+        settings.bilibili_cookie_file = self.bilibili_cookie_file.text().strip()
         settings.timeout = self.timeout.value()
