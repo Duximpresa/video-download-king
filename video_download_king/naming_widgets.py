@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QPoint, QRect, QSize, Qt
-from PySide6.QtWidgets import QLayout, QPushButton, QWidget, QWidgetItem
+from PySide6.QtWidgets import QApplication, QLayout, QLineEdit, QPushButton, QWidget, QWidgetItem
 
 
 class FlowLayout(QLayout):
@@ -77,3 +77,19 @@ def template_button_widget(target, fields: tuple[tuple[str, str], ...]) -> QWidg
         button.clicked.connect(lambda _checked=False, value=token: target.insert(value))
         layout.addWidget(button)
     return container
+
+
+def create_url_action_buttons(target: QLineEdit) -> tuple[QPushButton, QPushButton]:
+    """Create the shared clear/paste controls used by download URL fields."""
+    clear_button = QPushButton("清除")
+    paste_button = QPushButton("粘贴")
+    clear_button.setProperty("secondary", True)
+    paste_button.setProperty("secondary", True)
+    clear_button.clicked.connect(target.clear)
+
+    def replace_from_clipboard() -> None:
+        target.clear()
+        target.setText(QApplication.clipboard().text())
+
+    paste_button.clicked.connect(replace_from_clipboard)
+    return clear_button, paste_button

@@ -27,7 +27,7 @@ from .config import AppSettings, SettingsStore
 from .douyin_workers import DouyinAnalyzeWorker, DouyinDownloadWorker
 from .models import DouyinDownloadRequest, DouyinMediaInfo, TaskProgress, TaskResult
 from .utils import render_filename_template
-from .naming_widgets import template_button_widget
+from .naming_widgets import create_url_action_buttons, template_button_widget
 
 
 class DouyinPage(QWidget):
@@ -54,6 +54,7 @@ class DouyinPage(QWidget):
         url_row.setHorizontalSpacing(6)
         self.url_edit = QLineEdit()
         self.url_edit.setPlaceholderText("粘贴抖音单视频、图集链接或包含链接的分享文本")
+        self.clear_url_button, self.paste_url_button = create_url_action_buttons(self.url_edit)
         self.analyze_button = QPushButton("分析作品")
         self.analyze_button.clicked.connect(self._analyze)
         self.stop_analysis_button = QPushButton("停止分析")
@@ -62,8 +63,10 @@ class DouyinPage(QWidget):
         self.stop_analysis_button.clicked.connect(self.cancel)
         url_row.addWidget(QLabel("网址"), 0, 0)
         url_row.addWidget(self.url_edit, 0, 1)
-        url_row.addWidget(self.analyze_button, 0, 2)
-        url_row.addWidget(self.stop_analysis_button, 0, 3)
+        url_row.addWidget(self.clear_url_button, 0, 2)
+        url_row.addWidget(self.paste_url_button, 0, 3)
+        url_row.addWidget(self.analyze_button, 0, 4)
+        url_row.addWidget(self.stop_analysis_button, 0, 5)
         url_row.setColumnStretch(1, 1)
         root.addLayout(url_row)
 
@@ -212,7 +215,7 @@ class DouyinPage(QWidget):
             filename_template=template,
             classify_by_platform=self.classify_check.isChecked(),
             classify_by_author=self.classify_author_check.isChecked(),
-            cookie_file=self.settings.douyin_cookie_file,
+            cookie_file=self.settings.douyin_cookie_file or self.settings.cookie_file,
             proxy=self.settings.proxy,
             timeout=self.settings.timeout,
             download_thumbnail=self.download_thumbnail_check.isChecked(),
@@ -232,6 +235,8 @@ class DouyinPage(QWidget):
         self.download_button.setEnabled(False)
         self._set_busy(True, "正在分析抖音作品...")
         self._set_analysis_progress()
+        if not self.settings.douyin_cookie_file and self.settings.cookie_file:
+            self.log.appendPlainText("抖音专用 Cookie 未设置，正在使用 YouTube / X 通用 cookies.txt")
         worker = DouyinAnalyzeWorker(request)
         self._start_worker(worker, worker.run)
         worker.completed.connect(self._analysis_complete)
@@ -339,8 +344,7 @@ class DouyinPage(QWidget):
             self.stage_progress.setValue(100)
             listing = "\n".join(str(path) for path in result.output_files)
             self.progress_label.setText(f"完成：{result.output_files[0] if result.output_files else '任务完成'}")
-            self._append_log(f"输出文件：\n{listing}")
-            QMessageBox.information(self, "抖音任务完成", f"文件已保存：\n{listing}")
+            self._append_log(f"下载完成\n输出文件：\n{listing}")
         elif result.error_category == "已取消":
             self.progress_label.setText("任务已取消")
             self._append_log("任务已取消")

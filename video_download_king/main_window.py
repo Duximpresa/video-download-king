@@ -39,7 +39,7 @@ from .config import AppSettings, SettingsStore
 from .douyin_page import DouyinPage
 from .xiaohongshu_page import XiaohongshuPage
 from .bilibili_page import BilibiliPage
-from .naming_widgets import template_button_widget
+from .naming_widgets import create_url_action_buttons, template_button_widget
 from .formats import audio_formats, video_formats
 from .models import (
     DownloadRequest,
@@ -154,6 +154,7 @@ class MainWindow(QMainWindow):
         url_row.setHorizontalSpacing(6)
         self.url_edit = QLineEdit()
         self.url_edit.setPlaceholderText("粘贴 YouTube 单视频或 X 单条帖子链接")
+        self.clear_url_button, self.paste_url_button = create_url_action_buttons(self.url_edit)
         self.analyze_button = QPushButton("分析链接")
         self.analyze_button.clicked.connect(self._analyze)
         self.stop_analysis_button = QPushButton("停止分析")
@@ -162,8 +163,10 @@ class MainWindow(QMainWindow):
         self.stop_analysis_button.clicked.connect(self._cancel)
         url_row.addWidget(QLabel("网址"), 0, 0)
         url_row.addWidget(self.url_edit, 0, 1)
-        url_row.addWidget(self.analyze_button, 0, 2)
-        url_row.addWidget(self.stop_analysis_button, 0, 3)
+        url_row.addWidget(self.clear_url_button, 0, 2)
+        url_row.addWidget(self.paste_url_button, 0, 3)
+        url_row.addWidget(self.analyze_button, 0, 4)
+        url_row.addWidget(self.stop_analysis_button, 0, 5)
         url_row.setColumnStretch(1, 1)
         top_layout.addLayout(url_row)
 
@@ -757,8 +760,7 @@ class MainWindow(QMainWindow):
             files = result.output_files or ([result.output_path] if result.output_path else [])
             self.progress_label.setText(f"完成：{files[0] if files else '任务完成'}")
             listing = "\n".join(str(path) for path in files)
-            self._append_log(f"输出文件：\n{listing}")
-            QMessageBox.information(self, "任务完成", f"文件已保存：\n{listing}")
+            self._append_log(f"下载完成\n输出文件：\n{listing}")
         elif result.error_category == "已取消":
             self.progress_label.setText("任务已取消")
             self._append_log("任务已取消")

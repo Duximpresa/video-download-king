@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (QAbstractItemView,QCheckBox,QComboBox,QFileDialog
 from .bilibili_workers import BilibiliAnalyzeWorker, BilibiliDownloadWorker
 from .config import AppSettings, SettingsStore
 from .models import BilibiliDownloadRequest,BilibiliMediaInfo,TaskProgress,TaskResult
-from .naming_widgets import template_button_widget
+from .naming_widgets import create_url_action_buttons, template_button_widget
 from .utils import render_filename_template
 
 
@@ -20,7 +20,7 @@ class BilibiliPage(QWidget):
 
     def _build_ui(self)->None:
         root=QVBoxLayout(self); root.setContentsMargins(8,7,8,7); root.setSpacing(6)
-        row=QGridLayout(); self.url_edit=QLineEdit(); self.url_edit.setPlaceholderText("粘贴 B站 BV、AV、b23.tv 链接或分享文本"); self.analyze_button=QPushButton("分析稿件"); self.analyze_button.clicked.connect(self._analyze); self.stop_analysis_button=QPushButton("停止分析"); self.stop_analysis_button.setVisible(False); self.stop_analysis_button.setProperty("danger",True); self.stop_analysis_button.clicked.connect(self.cancel); row.addWidget(QLabel("网址"),0,0); row.addWidget(self.url_edit,0,1); row.addWidget(self.analyze_button,0,2); row.addWidget(self.stop_analysis_button,0,3); row.setColumnStretch(1,1); root.addLayout(row)
+        row=QGridLayout(); self.url_edit=QLineEdit(); self.url_edit.setPlaceholderText("粘贴 B站 BV、AV、b23.tv 链接或分享文本"); self.clear_url_button,self.paste_url_button=create_url_action_buttons(self.url_edit); self.analyze_button=QPushButton("分析稿件"); self.analyze_button.clicked.connect(self._analyze); self.stop_analysis_button=QPushButton("停止分析"); self.stop_analysis_button.setVisible(False); self.stop_analysis_button.setProperty("danger",True); self.stop_analysis_button.clicked.connect(self.cancel); row.addWidget(QLabel("网址"),0,0); row.addWidget(self.url_edit,0,1); row.addWidget(self.clear_url_button,0,2); row.addWidget(self.paste_url_button,0,3); row.addWidget(self.analyze_button,0,4); row.addWidget(self.stop_analysis_button,0,5); row.setColumnStretch(1,1); root.addLayout(row)
         path=QGridLayout(); self.path_edit=QLineEdit(); browse=QPushButton("选择..."); browse.clicked.connect(self._browse); self.classify_check=QCheckBox("按平台分类保存"); path.addWidget(QLabel("保存到"),0,0); path.addWidget(self.path_edit,0,1); path.addWidget(browse,0,2); path.addWidget(self.classify_check,0,3); path.setColumnStretch(1,1); root.addLayout(path)
         info=QGroupBox("稿件与分P"); info_layout=QGridLayout(info); self.title_label=QLabel("尚未分析稿件"); self.title_label.setWordWrap(True); self.meta_label=QLabel(); self.parts_table=QTableWidget(0,4); self.parts_table.setHorizontalHeaderLabels(["下载","P","分P标题","时长"]); self.parts_table.setSelectionBehavior(QAbstractItemView.SelectRows); self.parts_table.setEditTriggers(QAbstractItemView.NoEditTriggers); self.parts_table.verticalHeader().setVisible(False); self.parts_table.horizontalHeader().setSectionResizeMode(2,QHeaderView.Stretch); self.parts_table.setMinimumHeight(125); info_layout.addWidget(self.title_label,0,0); info_layout.addWidget(self.meta_label,1,0); info_layout.addWidget(self.parts_table,2,0); root.addWidget(info)
         options=QGroupBox("下载选项（自研引擎，无转码）"); grid=QGridLayout(options); self.video_quality=QComboBox(); self.video_codec=QComboBox(); [self.video_codec.addItem(label,value) for label,value in (("AVC / H.264","avc"),("HEVC / H.265","hevc"),("AV1","av1"))]; self.audio_quality=QComboBox(); grid.addWidget(QLabel("画质"),0,0); grid.addWidget(self.video_quality,0,1); grid.addWidget(QLabel("编码"),0,2); grid.addWidget(self.video_codec,0,3); grid.addWidget(QLabel("音质"),0,4); grid.addWidget(self.audio_quality,0,5)
@@ -48,7 +48,7 @@ class BilibiliPage(QWidget):
         try: request=self._request()
         except ValueError as exc: QMessageBox.warning(self,"无法分析",str(exc)); return
         self.media=None; self.parts_table.setRowCount(0); self._analysis_running=True; self._set_busy(True,"正在分析 B站稿件..."); self._analysis_progress()
-        if not self.settings.bilibili_cookie_file and self.settings.cookie_file: self.log.appendPlainText("B站专用 Cookie 未设置，正在兼容使用旧的网站 cookies.txt")
+        if not self.settings.bilibili_cookie_file and self.settings.cookie_file: self.log.appendPlainText("B站专用 Cookie 未设置，正在使用 YouTube / X 通用 cookies.txt")
         worker=BilibiliAnalyzeWorker(request); self._start(worker,worker.run); worker.completed.connect(self._analysis_complete); worker.failed.connect(self._failed)
     def _download(self):
         if self.thread:return
@@ -83,7 +83,7 @@ class BilibiliPage(QWidget):
         self.progress_label.setText(f"{item.stage} {item.current_item}".strip())
     def _complete(self,result:TaskResult):
         self._reset_progress(); self._set_busy(False,result.message)
-        if result.success: QMessageBox.information(self,"B站任务完成","文件已保存：\n"+"\n".join(str(p) for p in result.output_files))
+        if result.success: self.log.appendPlainText("下载完成\n输出文件：\n"+"\n".join(str(p) for p in result.output_files))
         elif result.error_category!="已取消": QMessageBox.critical(self,f"B站下载失败：{result.error_category}",result.message)
     def _failed(self,category,message): self.media=None; self._reset_progress(); self._set_busy(False,message); QMessageBox.critical(self,f"B站分析失败：{category}",message)
     def _analysis_progress(self): self.total_progress.setRange(0,0);self.stage_progress.setRange(0,0)

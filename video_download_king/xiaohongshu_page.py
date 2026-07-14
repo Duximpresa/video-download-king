@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 
 from .config import AppSettings, SettingsStore
 from .models import TaskProgress, TaskResult, XiaohongshuDownloadRequest, XiaohongshuMediaInfo
-from .naming_widgets import template_button_widget
+from .naming_widgets import create_url_action_buttons, template_button_widget
 from .utils import render_filename_template
 from .xiaohongshu_workers import XiaohongshuAnalyzeWorker, XiaohongshuDownloadWorker
 
@@ -37,9 +37,10 @@ class XiaohongshuPage(QWidget):
         root = QVBoxLayout(self); root.setContentsMargins(8, 7, 8, 7); root.setSpacing(6)
         row = QGridLayout(); row.setHorizontalSpacing(6)
         self.url_edit = QLineEdit(); self.url_edit.setPlaceholderText("粘贴小红书单篇视频、图文、短链接或包含链接的分享文本")
+        self.clear_url_button, self.paste_url_button = create_url_action_buttons(self.url_edit)
         self.analyze_button = QPushButton("分析笔记"); self.analyze_button.clicked.connect(self._analyze)
         self.stop_analysis_button = QPushButton("停止分析"); self.stop_analysis_button.setProperty("danger", True); self.stop_analysis_button.setVisible(False); self.stop_analysis_button.clicked.connect(self.cancel)
-        row.addWidget(QLabel("网址"), 0, 0); row.addWidget(self.url_edit, 0, 1); row.addWidget(self.analyze_button, 0, 2); row.addWidget(self.stop_analysis_button, 0, 3); row.setColumnStretch(1, 1); root.addLayout(row)
+        row.addWidget(QLabel("网址"), 0, 0); row.addWidget(self.url_edit, 0, 1); row.addWidget(self.clear_url_button, 0, 2); row.addWidget(self.paste_url_button, 0, 3); row.addWidget(self.analyze_button, 0, 4); row.addWidget(self.stop_analysis_button, 0, 5); row.setColumnStretch(1, 1); root.addLayout(row)
 
         option_row = QHBoxLayout()
         self.video_preference = QComboBox()
@@ -93,13 +94,15 @@ class XiaohongshuPage(QWidget):
         if not self.url_edit.text().strip(): raise ValueError("请先粘贴小红书笔记链接或分享文本")
         if not self.path_edit.text().strip(): raise ValueError("请选择保存目录")
         template = self.filename_template.text().strip() or "{title} [{id}]"; render_filename_template(template, self._values())
-        return XiaohongshuDownloadRequest(self.url_edit.text().strip(), Path(self.path_edit.text().strip()).expanduser(), self.video_preference.currentData(), self.image_format.currentData(), template, self.classify_check.isChecked(), self.classify_author_check.isChecked(), self.settings.xiaohongshu_cookie_file, self.settings.proxy, self.settings.timeout, self.cover_check.isChecked(), self.media)
+        cookie_file = self.settings.xiaohongshu_cookie_file or self.settings.cookie_file
+        return XiaohongshuDownloadRequest(self.url_edit.text().strip(), Path(self.path_edit.text().strip()).expanduser(), self.video_preference.currentData(), self.image_format.currentData(), template, self.classify_check.isChecked(), self.classify_author_check.isChecked(), cookie_file, self.settings.proxy, self.settings.timeout, self.cover_check.isChecked(), self.media)
 
     def _analyze(self) -> None:
         if self.thread: return
         try: request = self._request()
         except ValueError as exc: QMessageBox.warning(self, "无法分析", str(exc)); return
         self.media = None; self._analysis_running = True; self._set_busy(True, "正在分析小红书笔记..."); self.total_progress.setRange(0, 0); self.stage_progress.setRange(0, 0)
+        if not self.settings.xiaohongshu_cookie_file and self.settings.cookie_file: self.log.appendPlainText("小红书专用 Cookie 未设置，正在使用 YouTube / X 通用 cookies.txt")
         worker = XiaohongshuAnalyzeWorker(request); self._start(worker, worker.run); worker.completed.connect(self._analysis_complete); worker.failed.connect(self._failed)
 
     def _download(self) -> None:
@@ -132,7 +135,7 @@ class XiaohongshuPage(QWidget):
 
     def _complete(self, result: TaskResult) -> None:
         self._reset_progress(); self._set_busy(False, result.message)
-        if result.success: QMessageBox.information(self, "小红书任务完成", "文件已保存：\n" + "\n".join(str(path) for path in result.output_files))
+        if result.success: self.log.appendPlainText("下载完成\n输出文件：\n" + "\n".join(str(path) for path in result.output_files))
         elif result.error_category != "已取消": QMessageBox.critical(self, f"小红书下载失败：{result.error_category}", result.message)
 
     def _progress(self, item: TaskProgress) -> None:

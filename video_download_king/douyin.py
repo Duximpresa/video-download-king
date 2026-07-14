@@ -35,6 +35,26 @@ from .utils import render_filename_template, sanitize_filename, unique_path
 ProgressCallback = Callable[[TaskProgress], None]
 LogCallback = Callable[[str], None]
 
+
+def render_gallery_folder_name(template: str, media: DouyinMediaInfo) -> str:
+    """Render a work-level gallery folder name without per-asset fields."""
+    folder_template = re.sub(r"\{(?:index|asset)\}", "", template).rstrip(" _-.")
+    values = {
+        "title": media.title,
+        "id": media.media_id,
+        "channel": media.author,
+        "author": media.author,
+        "platform": "抖音",
+        "upload_date": media.upload_date,
+        "type": "图集",
+        "index": "",
+        "asset": "",
+    }
+    rendered = render_filename_template(folder_template, values).rstrip(" _-.") if folder_template else ""
+    if rendered:
+        return rendered
+    return render_filename_template("{title} [{id}]", values)
+
 _USER_AGENTS = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
@@ -475,11 +495,16 @@ class DouyinService:
             raise RuntimeError("抖音作品的全部资源均下载失败")
 
         final_paths: list[Path] = []
-        for path in completed:
-            target = unique_path(output_dir / path.name)
-            os.replace(path, target)
-            final_paths.append(target)
-        shutil.rmtree(staging, ignore_errors=True)
+        if media.media_type == "gallery" and len(completed) >= 2:
+            target_dir = unique_path(output_dir / render_gallery_folder_name(request.filename_template, media))
+            os.replace(staging, target_dir)
+            final_paths = [target_dir / path.name for path in completed]
+        else:
+            for path in completed:
+                target = unique_path(output_dir / path.name)
+                os.replace(path, target)
+                final_paths.append(target)
+            shutil.rmtree(staging, ignore_errors=True)
         if failures:
             on_log(f"部分完成：成功 {len(final_paths)} 个，失败 {len(failures)} 个")
         on_progress(TaskProgress("完成", 100, 100, message="抖音资源下载完成"))

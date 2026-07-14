@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from video_download_king.douyin import DouyinService, load_netscape_cookies, resolve_douyin_output_dir, select_video_asset
+from video_download_king.douyin import DouyinService, load_netscape_cookies, render_gallery_folder_name, resolve_douyin_output_dir, select_video_asset
 from video_download_king.douyin_workers import _yt_request
 from video_download_king.models import (
     DouyinAsset,
@@ -168,3 +168,86 @@ def test_douyin_author_output_directory_is_sanitized(tmp_path: Path) -> None:
         "Douyin",
         "未知作者",
     )
+
+
+def test_gallery_folder_name_blanks_asset_fields_and_falls_back() -> None:
+    media = DouyinMediaInfo(VIDEO_URL, "123", "作品标题", media_type="gallery")
+    assert render_gallery_folder_name("{title}_{index}-{asset}", media) == "作品标题"
+    assert render_gallery_folder_name("{index}{asset}", media) == "作品标题 [123]"
+
+
+@pytest.mark.parametrize(
+    ("assets", "download_cover", "failed_urls", "expects_folder"),
+    [
+        ([DouyinAsset("image", ("one",), index=1, extension=".jpg")], False, set(), False),
+        ([DouyinAsset("image", ("one",), index=1, extension=".jpg"), DouyinAsset("image", ("two",), index=2, extension=".jpg")], False, set(), True),
+        ([DouyinAsset("image", ("one",), index=1, extension=".jpg"), DouyinAsset("live_photo", ("live",), index=1, extension=".mp4")], False, set(), True),
+        ([DouyinAsset("image", ("one",), index=1, extension=".jpg")], True, set(), True),
+        ([DouyinAsset("image", ("one",), index=1, extension=".jpg"), DouyinAsset("image", ("fail",), index=2, extension=".jpg")], False, {"fail"}, False),
+    ],
+)
+def test_gallery_uses_actual_saved_file_count_for_folder(
+    tmp_path: Path,
+    monkeypatch,
+    assets: list[DouyinAsset],
+    download_cover: bool,
+    failed_urls: set[str],
+    expects_folder: bool,
+) -> None:
+    media = DouyinMediaInfo(
+        VIDEO_URL,
+        "123",
+        "作品标题",
+        media_type="gallery",
+        gallery_assets=assets,
+        cover_asset=DouyinAsset("cover", ("cover",), extension=".jpg"),
+    )
+    request = DouyinDownloadRequest(
+        VIDEO_URL,
+        tmp_path,
+        filename_template="{title}_{index}_{asset}",
+        classify_by_platform=False,
+        download_thumbnail=download_cover,
+        media=media,
+    )
+    service = DouyinService()
+
+    async def fake_download(session, asset, path, proxy, item_index, total_items, on_progress, on_log):
+        if asset.urls[0] in failed_urls:
+            raise RuntimeError("模拟失败")
+        path.write_bytes(asset.urls[0].encode())
+        return path
+
+    monkeypatch.setattr(service, "_download_asset", fake_download)
+    outputs = service.download(request, lambda progress: None, lambda message: None)
+    assert len(outputs) == (len(assets) - len(failed_urls) + int(download_cover))
+    assert all(path.exists() for path in outputs)
+    if expects_folder:
+        assert {path.parent for path in outputs} == {tmp_path / "作品标题"}
+    else:
+        assert all(path.parent == tmp_path for path in outputs)
+
+
+def test_gallery_duplicate_folder_gets_sequence(tmp_path: Path, monkeypatch) -> None:
+    media = DouyinMediaInfo(
+        VIDEO_URL,
+        "123",
+        "作品标题",
+        media_type="gallery",
+        gallery_assets=[
+            DouyinAsset("image", ("one",), index=1, extension=".jpg"),
+            DouyinAsset("image", ("two",), index=2, extension=".jpg"),
+        ],
+    )
+    request = DouyinDownloadRequest(VIDEO_URL, tmp_path, classify_by_platform=False, media=media)
+    service = DouyinService()
+
+    async def fake_download(session, asset, path, proxy, item_index, total_items, on_progress, on_log):
+        path.write_bytes(b"ok")
+        return path
+
+    monkeypatch.setattr(service, "_download_asset", fake_download)
+    first = service.download(request, lambda progress: None, lambda message: None)
+    second = service.download(request, lambda progress: None, lambda message: None)
+    assert first[0].parent == tmp_path / "作品标题 [123]"
+    assert second[0].parent == tmp_path / "作品标题 [123] (1)"

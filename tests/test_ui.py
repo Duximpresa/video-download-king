@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import pytest
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt
@@ -20,10 +22,11 @@ from PySide6.QtWidgets import (
 from video_download_king.config import AppSettings
 from video_download_king.config import SettingsStore
 from video_download_king.app import STYLE
+from video_download_king.bilibili_page import BilibiliPage
 from video_download_king.douyin_page import DouyinPage
 from video_download_king.xiaohongshu_page import XiaohongshuPage
 from video_download_king.main_window import MainWindow
-from video_download_king.models import SubtitleInfo
+from video_download_king.models import SubtitleInfo, TaskResult
 from video_download_king.settings_dialog import SettingsDialog
 from video_download_king.subtitle_dialog import SubtitleDialog
 from video_download_king.models import DouyinAsset, DouyinMediaInfo, TranscodeConfig
@@ -169,6 +172,124 @@ def test_settings_proxy_tab_has_custom_connectivity_test() -> None:
     assert dialog.test_button.text() == "测试网络连通性"
     assert "无需先保存" in dialog.test_result.text()
     dialog.close()
+
+
+def test_all_download_url_fields_have_clear_and_replace_paste(monkeypatch) -> None:
+    app()
+    monkeypatch.setattr(
+        "video_download_king.main_window.FFmpegService.detect_encoders",
+        lambda self, on_log=None: {"nvidia": False, "intel": False, "amd": False},
+    )
+    window = MainWindow()
+    pages = [window, window.douyin_page, window.bilibili_page, window.xiaohongshu_page]
+    for page in pages:
+        page.url_edit.setText("old value")
+        page.clear_url_button.click()
+        assert page.url_edit.text() == ""
+        QApplication.clipboard().setText("new clipboard value")
+        page.url_edit.setText("replace me")
+        page.paste_url_button.click()
+        assert page.url_edit.text() == "new clipboard value"
+        QApplication.clipboard().setText("")
+        page.paste_url_button.click()
+        assert page.url_edit.text() == ""
+    dialog = SettingsDialog(AppSettings())
+    assert not hasattr(dialog, "clear_test_url_button")
+    assert not hasattr(dialog, "paste_test_url_button")
+    dialog.close()
+    window.close()
+
+
+def test_cookie_clear_buttons_only_persist_when_applied() -> None:
+    app()
+    settings = AppSettings(
+        cookie_file="common.txt",
+        cookie_browser="chrome",
+        douyin_cookie_file="douyin.txt",
+        bilibili_cookie_file="bilibili.txt",
+        xiaohongshu_cookie_file="xiaohongshu.txt",
+    )
+    dialog = SettingsDialog(settings)
+    for button in (
+        dialog.clear_cookie_button,
+        dialog.clear_douyin_cookie_button,
+        dialog.clear_bilibili_cookie_button,
+        dialog.clear_xiaohongshu_cookie_button,
+    ):
+        button.click()
+    assert settings.cookie_file == "common.txt"
+    assert settings.douyin_cookie_file == "douyin.txt"
+    dialog.reject()
+
+    saved_dialog = SettingsDialog(settings)
+    saved_dialog.clear_cookie_button.click()
+    saved_dialog.clear_douyin_cookie_button.click()
+    saved_dialog.clear_bilibili_cookie_button.click()
+    saved_dialog.clear_xiaohongshu_cookie_button.click()
+    saved_dialog.apply(settings)
+    assert settings.cookie_file == ""
+    assert settings.douyin_cookie_file == ""
+    assert settings.bilibili_cookie_file == ""
+    assert settings.xiaohongshu_cookie_file == ""
+    assert settings.cookie_browser == "chrome"
+    saved_dialog.close()
+
+
+def test_platform_cookie_request_priority(tmp_path: Path) -> None:
+    app()
+    settings = AppSettings(
+        save_path=str(tmp_path),
+        cookie_file="common.txt",
+        douyin_cookie_file="douyin.txt",
+        bilibili_cookie_file="bilibili.txt",
+        xiaohongshu_cookie_file="xiaohongshu.txt",
+    )
+    store = SettingsStore(tmp_path / "settings.json")
+    douyin = DouyinPage(settings, store)
+    xhs = XiaohongshuPage(settings, store)
+    bili = BilibiliPage(settings, store)
+    cases = [
+        (douyin, "https://www.douyin.com/video/7604129988555574538", "douyin_cookie_file", "douyin.txt"),
+        (bili, "https://www.bilibili.com/video/BV1Ab411c7mD", "bilibili_cookie_file", "bilibili.txt"),
+        (xhs, "https://www.xiaohongshu.com/explore/65abcdef0000000012345678", "xiaohongshu_cookie_file", "xiaohongshu.txt"),
+    ]
+    for page, url, field, specific in cases:
+        page.url_edit.setText(url)
+        assert page._request().cookie_file == specific
+        setattr(settings, field, "")
+        assert page._request().cookie_file == "common.txt"
+        settings.cookie_file = ""
+        assert page._request().cookie_file == ""
+        settings.cookie_file = "common.txt"
+        setattr(settings, field, specific)
+        page.close()
+
+
+def test_success_completion_uses_logs_without_information_popup(monkeypatch, tmp_path: Path) -> None:
+    app()
+    monkeypatch.setattr(
+        "video_download_king.main_window.FFmpegService.detect_encoders",
+        lambda self, on_log=None: {"nvidia": False, "intel": False, "amd": False},
+    )
+    monkeypatch.setattr(
+        "video_download_king.main_window.QMessageBox.information",
+        lambda *args, **kwargs: pytest.fail("success popup must not be shown"),
+    )
+    window = MainWindow()
+    output = tmp_path / "saved.mp4"
+    result = TaskResult(True, "完成", output, [output])
+    pages_and_callbacks = [
+        (window, window._download_complete),
+        (window.douyin_page, window.douyin_page._download_complete),
+        (window.bilibili_page, window.bilibili_page._complete),
+        (window.xiaohongshu_page, window.xiaohongshu_page._complete),
+    ]
+    for page, callback in pages_and_callbacks:
+        callback(result)
+        log = page.log.toPlainText()
+        assert "下载完成" in log
+        assert str(output) in log
+    window.close()
 
 
 def test_main_window_pages_are_scrollable_and_720p_sized(monkeypatch) -> None:
