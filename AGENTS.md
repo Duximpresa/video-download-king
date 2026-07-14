@@ -2,10 +2,10 @@
 
 ## 项目概况
 
-Video Download King 是面向 64 位 Windows 11 的简体中文桌面视频下载器，当前版本为 `0.5.3`。
+Video Download King 是面向 64 位 Windows 11 的简体中文桌面视频下载器，当前版本为 `0.7.0`。
 
 - 技术栈：Python 3.12、PySide6、yt-dlp、FFmpeg、FFprobe、Deno、PyInstaller。
-- 当前平台范围：YouTube 单视频、X 单条视频帖子、B站单稿件/多分P，以及抖音单视频/图集；批量页仅占位。
+- 当前平台范围：YouTube 单视频、X 单条视频帖子、B站单稿件/多分P、抖音单视频/图集，以及小红书单篇视频/图文；批量页仅占位。
 - 发布形式：便携 ZIP，主程序和全部运行时放在同一目录。
 - 当前分支：`main`。
 - 版本历史：参见 `CHANGELOG.md`。
@@ -31,7 +31,7 @@ python -m pytest -q
 python -m compileall -q video_download_king tests
 
 # 构建发布包，版本号必须与代码版本一致
-.\build_release.ps1 -Version 0.5.3
+.\build_release.ps1 -Version 0.7.0
 ```
 
 发布脚本会运行测试、使用 PyInstaller 构建无控制台窗口的目录版程序，并生成：
@@ -52,6 +52,9 @@ video_download_king/
   douyin_page.py                抖音专用页面和 UI 状态
   douyin.py                     抖音接口、签名、资源选择和原子下载
   douyin_workers.py             抖音双引擎后台任务与回退编排
+  xiaohongshu_page.py           小红书专用页面和 UI 状态
+  xiaohongshu.py                小红书网页解析、资源选择和原子下载
+  xiaohongshu_workers.py        小红书分析与下载后台任务
   bilibili_page.py              B站专用页面和多分P选择
   bilibili.py                   B站 WBI/DASH、分片下载、附属文件和无转码合并
   bilibili_workers.py           B站分析与下载后台任务
@@ -183,6 +186,7 @@ git diff --check
 正式发布还应验证：
 
 - 真实 YouTube 分析和视频+音频下载。
+- 真实小红书视频、普通图文和实况图文分析下载；测试链接和 Cookie 不提交仓库。
 - 人工字幕下载；自动字幕可能因 YouTube HTTP 429 失败，应只产生警告。
 - CPU 与本机可用硬件编码器转码。
 - 打包 EXE 启动、中文路径、配置记忆和便携 ZIP。
@@ -201,7 +205,7 @@ git diff --check
 
 ## 当前范围与后续方向
 
-当前明确不支持：播放列表、直播、并发下载、字幕嵌入、批量任务和自动更新。
+当前明确不支持：播放列表、直播、小红书主页/搜索/收藏/批量/RedNote、并发下载、字幕嵌入、批量任务和自动更新。
 
 批量功能应复用现有 `DownloadRequest`、worker 和服务层，不要在批量页复制下载逻辑。扩展其他平台时，应先扩展 `platforms.py` 和平台能力边界，再复用 yt-dlp 服务。
 

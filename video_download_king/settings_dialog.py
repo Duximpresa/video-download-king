@@ -37,6 +37,7 @@ class SettingsDialog(QDialog):
         tabs.addTab(self._build_cookie_tab(settings), "YouTube / X 登录")
         tabs.addTab(self._build_douyin_cookie_tab(settings), "抖音登录")
         tabs.addTab(self._build_bilibili_cookie_tab(settings), "B站登录")
+        tabs.addTab(self._build_xiaohongshu_cookie_tab(settings), "小红书登录")
         tabs.addTab(self._build_network_tab(settings), "网络")
 
         self.dialog_buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
@@ -152,6 +153,21 @@ class SettingsDialog(QDialog):
         form.addRow("说明", hint)
         return page
 
+    def _build_xiaohongshu_cookie_tab(self, settings: AppSettings) -> QWidget:
+        page = QWidget()
+        form = QFormLayout(page)
+        self.xiaohongshu_cookie_file = QLineEdit(settings.xiaohongshu_cookie_file)
+        browse = QPushButton("浏览...")
+        browse.clicked.connect(self._browse_xiaohongshu_cookie)
+        row = QHBoxLayout()
+        row.addWidget(self.xiaohongshu_cookie_file)
+        row.addWidget(browse)
+        form.addRow("Netscape cookies.txt", row)
+        hint = QLabel("仅用于自研小红书引擎；遇到登录限制或安全验证时，请导出最新的小红书网站 Cookie。")
+        hint.setWordWrap(True)
+        form.addRow("说明", hint)
+        return page
+
     def _browse_cookie(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "选择 cookies.txt", "", "文本文件 (*.txt);;所有文件 (*)")
         if path:
@@ -166,6 +182,11 @@ class SettingsDialog(QDialog):
         path, _ = QFileDialog.getOpenFileName(self, "选择 B站 cookies.txt", "", "文本文件 (*.txt);;所有文件 (*)")
         if path:
             self.bilibili_cookie_file.setText(path)
+
+    def _browse_xiaohongshu_cookie(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "选择小红书 cookies.txt", "", "文本文件 (*.txt);;所有文件 (*)")
+        if path:
+            self.xiaohongshu_cookie_file.setText(path)
 
     def _proxy_from_form(self) -> ProxyConfig:
         return ProxyConfig(
@@ -229,5 +250,6 @@ class SettingsDialog(QDialog):
         settings.cookie_file = self.cookie_file.text().strip()
         settings.cookie_browser = self.cookie_mode.currentData()
         settings.douyin_cookie_file = self.douyin_cookie_file.text().strip()
+        settings.xiaohongshu_cookie_file = self.xiaohongshu_cookie_file.text().strip()
         settings.bilibili_cookie_file = self.bilibili_cookie_file.text().strip()
         settings.timeout = self.timeout.value()

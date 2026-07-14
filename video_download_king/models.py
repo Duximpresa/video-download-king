@@ -281,6 +281,52 @@ class DouyinDownloadRequest:
 
 
 @dataclass(slots=True, frozen=True)
+class XiaohongshuAsset:
+    kind: Literal["video", "image", "live_photo", "cover"]
+    urls: tuple[str, ...]
+    index: int = 0
+    width: int | None = None
+    height: int | None = None
+    bitrate: int | None = None
+    size: int | None = None
+    codec: str = ""
+    extension: str = ""
+
+
+@dataclass(slots=True)
+class XiaohongshuMediaInfo:
+    webpage_url: str
+    note_id: str
+    title: str
+    description: str = ""
+    author: str = ""
+    author_id: str = ""
+    upload_date: str = ""
+    thumbnail: str = ""
+    media_type: Literal["video", "gallery"] = "video"
+    video_assets: list[XiaohongshuAsset] = field(default_factory=list)
+    image_assets: list[XiaohongshuAsset] = field(default_factory=list)
+    live_assets: list[XiaohongshuAsset] = field(default_factory=list)
+    cover_asset: XiaohongshuAsset | None = None
+
+
+@dataclass(slots=True)
+class XiaohongshuDownloadRequest:
+    url: str
+    output_dir: Path
+    video_preference: Literal["resolution", "bitrate", "size"] = "resolution"
+    image_format: Literal["auto", "jpeg", "png", "webp"] = "auto"
+    filename_template: str = "{title} [{id}]"
+    classify_by_platform: bool = True
+    classify_by_author: bool = False
+    cookie_file: str = ""
+    proxy: ProxyConfig = field(default_factory=ProxyConfig)
+    timeout: int = 30
+    download_thumbnail: bool = False
+    media: XiaohongshuMediaInfo | None = None
+
+
+@dataclass(slots=True, frozen=True)
 class BilibiliSubtitleInfo:
     language: str
     name: str

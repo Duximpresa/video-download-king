@@ -42,8 +42,12 @@ class AppSettings:
     cookie_file: str = ""
     cookie_browser: str = ""
     douyin_cookie_file: str = ""
+    xiaohongshu_cookie_file: str = ""
     bilibili_cookie_file: str = ""
     douyin_classify_by_author: bool = False
+    xiaohongshu_classify_by_author: bool = False
+    xiaohongshu_video_preference: str = "resolution"
+    xiaohongshu_image_format: str = "auto"
     timeout: int = 30
     output_mode: str = "video_audio"
     filename_template: str = "{title} [{id}]"
@@ -80,8 +84,16 @@ class SettingsStore:
                 cookie_file=data.get("cookie_file", ""),
                 cookie_browser=data.get("cookie_browser", ""),
                 douyin_cookie_file=data.get("douyin_cookie_file", ""),
+                xiaohongshu_cookie_file=data.get("xiaohongshu_cookie_file", ""),
                 bilibili_cookie_file=data.get("bilibili_cookie_file", ""),
                 douyin_classify_by_author=bool(data.get("douyin_classify_by_author", False)),
+                xiaohongshu_classify_by_author=bool(data.get("xiaohongshu_classify_by_author", False)),
+                xiaohongshu_video_preference=data.get("xiaohongshu_video_preference", "resolution")
+                if data.get("xiaohongshu_video_preference") in {"resolution", "bitrate", "size"}
+                else "resolution",
+                xiaohongshu_image_format=data.get("xiaohongshu_image_format", "auto")
+                if data.get("xiaohongshu_image_format") in {"auto", "jpeg", "png", "webp"}
+                else "auto",
                 timeout=int(data.get("timeout", 30)),
                 output_mode=mode,
                 filename_template=data.get("filename_template", "{title} [{id}]"),

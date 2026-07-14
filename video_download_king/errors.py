@@ -26,6 +26,8 @@ def categorize_error(text: str) -> str:
         return "代理"
     if "bilibili" in lowered and ("http error 412" in lowered or "precondition failed" in lowered):
         return "Cookie/风控"
+    if "安全验证" in text or "风控" in text or "captcha" in lowered or "verify" in lowered:
+        return "Cookie/风控"
     if "cookie" in lowered or "sign in" in lowered or "login" in lowered:
         return "Cookie/登录"
     if "requested format is not available" in lowered:

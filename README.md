@@ -1,6 +1,6 @@
-# Video Download King 0.6.0
+# Video Download King 0.7.0
 
-面向 Windows 11 的中文桌面视频下载器。支持 YouTube 单视频、X 单条视频帖子、哔哩哔哩单稿件/多分P，以及抖音单视频和图集。YouTube 与 X 使用 `yt-dlp`，B站和抖音提供独立自研下载引擎。
+面向 Windows 11 的中文桌面视频下载器。支持 YouTube 单视频、X 单条视频帖子、哔哩哔哩单稿件/多分P、抖音单视频/图集，以及小红书单篇视频/图文。YouTube 与 X 使用 `yt-dlp`，B站、抖音和小红书提供独立自研下载引擎。
 
 项目维护与智能体交接参见 [AGENTS.md](AGENTS.md)，逐版本变更参见 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -12,6 +12,11 @@
 - 抖音视频可选择自研引擎或 `yt-dlp`，失败时询问是否切换
 - 自研引擎优先选择无水印高画质资源，并支持图集及实况片段
 - 抖音独立 Netscape `cookies.txt` 设置
+
+- 独立“小红书下载”页面，不调用 `yt-dlp`，不执行转码
+- 支持单篇视频、图文、图集、实况图片、`xhslink.com` 短链和分享文本
+- 可按分辨率、码率或体积选择视频，图片可保留原格式或输出 JPEG/PNG/WEBP
+- 每篇图文自动建立独立目录，并支持平台、作者分类和小红书专用 Netscape `cookies.txt`
 
 - 独立“B站下载”页面，不调用 `yt-dlp`
 - 支持 BV、AV、`b23.tv`、分享文本及多分P勾选
@@ -74,13 +79,13 @@ Deno 是 yt-dlp 官方推荐的 YouTube JavaScript 挑战运行时，程序会�
 ## 构建便携版
 
 ```powershell
-.\build_release.ps1 -Version 0.6.0
+.\build_release.ps1 -Version 0.7.0
 ```
 
 脚本会先运行测试，再使用 PyInstaller 生成目录版程序，并创建：
 
 ```text
-release/VideoDownloadKing-v0.6.0-Windows-x64.zip
+release/VideoDownloadKing-v0.7.0-Windows-x64.zip
 ```
 
 ## 使用说明
@@ -91,6 +96,13 @@ release/VideoDownloadKing-v0.6.0-Windows-x64.zip
 2. 视频默认使用自研引擎，也可切换为 `yt-dlp`；图集固定使用自研引擎。
 3. 选择画质、命名和封面选项后开始下载；抖音页面不执行额外视频编码。
 4. 风控或受限作品可在“设置 > 抖音登录”选择 Netscape `cookies.txt`。
+
+小红书下载：
+
+1. 打开“小红书下载”页，粘贴单篇视频、图文、短链接或分享文本并分析。
+2. 视频可选择最高分辨率、最高码率或最小体积；图片可选择原格式、JPEG、PNG 或 WEBP。
+3. 图文的静态图片和实况 MP4 会保存到以笔记命名的独立文件夹；视频直接保存为 MP4，不转码。
+4. 登录限制或安全验证时，可在“设置 > 小红书登录”选择最新导出的 Netscape `cookies.txt`。
 
 单链接下载：
 
@@ -116,4 +128,4 @@ B站下载：
 
 ## 暂不支持
 
-播放列表、B站合集/番剧/课程/直播/互动视频、抖音主页/合集/音乐/直播、并发任务、字幕嵌入、批量任务和自动更新将在后续版本评估。
+播放列表、B站合集/番剧/课程/直播/互动视频、抖音主页/合集/音乐/直播、小红书主页/搜索/收藏/批量/RedNote、并发任务、字幕嵌入、批量任务和自动更新将在后续版本评估。

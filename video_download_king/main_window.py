@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
 
 from .config import AppSettings, SettingsStore
 from .douyin_page import DouyinPage
+from .xiaohongshu_page import XiaohongshuPage
 from .bilibili_page import BilibiliPage
 from .naming_widgets import template_button_widget
 from .formats import audio_formats, video_formats
@@ -108,6 +109,8 @@ class MainWindow(QMainWindow):
         tabs.addTab(self._make_scroll_page(self.douyin_page), "抖音下载")
         self.bilibili_page = BilibiliPage(self.settings, self.store, self)
         tabs.addTab(self._make_scroll_page(self.bilibili_page), "B站下载")
+        self.xiaohongshu_page = XiaohongshuPage(self.settings, self.store, self)
+        tabs.addTab(self._make_scroll_page(self.xiaohongshu_page), "小红书下载")
         tabs.addTab(self._make_scroll_page(self._build_batch_tab()), "批量下载")
         tabs.currentChanged.connect(lambda _index: self._sync_scroll_pages())
         self.setCentralWidget(tabs)
@@ -863,7 +866,7 @@ class MainWindow(QMainWindow):
         self.store.save(self.settings)
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        if self.thread or self.douyin_page.is_busy() or self.bilibili_page.is_busy():
+        if self.thread or self.douyin_page.is_busy() or self.xiaohongshu_page.is_busy() or self.bilibili_page.is_busy():
             answer = QMessageBox.question(self, "任务运行中", "任务仍在运行，确定要取消并退出吗？")
             if answer != QMessageBox.Yes:
                 event.ignore()
@@ -873,6 +876,7 @@ class MainWindow(QMainWindow):
                 self.thread.quit()
                 self.thread.wait(3000)
             self.douyin_page.shutdown()
+            self.xiaohongshu_page.shutdown()
             self.bilibili_page.shutdown()
         self._save_ui_settings()
         event.accept()

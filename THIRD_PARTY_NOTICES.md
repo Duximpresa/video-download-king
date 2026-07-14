@@ -1,5 +1,13 @@
 # 第三方组件说明
 
+## XHS-Downloader 研究参考
+
+- 项目：https://github.com/JoeanAmier/XHS-Downloader
+- 参考提交：`f9476f61bc1eef979718cacec89ccf994d21eae7`
+- 许可证：GPL-3.0
+- 用途：研究其公开的小红书短链、笔记网页初始状态、视频/图片/实况资源提取和下载链路。
+- 本项目未复制或捆绑 XHS-Downloader 源代码；小红书模型、网页解析、网络、下载、进度、UI 和文件处理均为独立实现。
+
 ## Bili23-Downloader 研究参考
 
 - 项目：https://github.com/ScottSloan/Bili23-Downloader

@@ -14,12 +14,14 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSpinBox,
+    QTabWidget,
 )
 
 from video_download_king.config import AppSettings
 from video_download_king.config import SettingsStore
 from video_download_king.app import STYLE
 from video_download_king.douyin_page import DouyinPage
+from video_download_king.xiaohongshu_page import XiaohongshuPage
 from video_download_king.main_window import MainWindow
 from video_download_king.models import SubtitleInfo
 from video_download_king.settings_dialog import SettingsDialog
@@ -30,6 +32,24 @@ from video_download_king.transcode_panel import TranscodePanel
 
 def app() -> QApplication:
     return QApplication.instance() or QApplication([])
+
+
+def test_xiaohongshu_tabs_follow_bilibili(monkeypatch) -> None:
+    app()
+    monkeypatch.setattr(
+        "video_download_king.main_window.FFmpegService.detect_encoders",
+        lambda self, on_log=None: {"nvidia": False, "intel": False, "amd": False},
+    )
+    window = MainWindow()
+    main_tabs = window.centralWidget()
+    assert [main_tabs.tabText(i) for i in range(main_tabs.count())] == [
+        "单链接下载", "抖音下载", "B站下载", "小红书下载", "批量下载"
+    ]
+    dialog = SettingsDialog(AppSettings())
+    settings_tabs = dialog.findChild(QTabWidget)
+    assert [settings_tabs.tabText(i) for i in range(settings_tabs.count())] == [
+        "代理", "YouTube / X 登录", "抖音登录", "B站登录", "小红书登录", "网络"
+    ]
 
 
 def test_all_numeric_inputs_hide_step_buttons(monkeypatch) -> None:
@@ -180,7 +200,7 @@ def test_pages_follow_viewport_after_widening_and_shrinking(monkeypatch) -> None
     window.show()
     QApplication.processEvents()
     tabs = window.centralWidget()
-    for index in (0, 1, 2):
+    for index in (0, 1, 2, 3):
         tabs.setCurrentIndex(index)
         QApplication.processEvents()
         window.resize(1600, 760)
@@ -202,6 +222,8 @@ def test_pages_follow_viewport_after_widening_and_shrinking(monkeypatch) -> None
             else window.douyin_page.analyze_button
             if index == 1
             else window.bilibili_page.analyze_button
+            if index == 2
+            else window.xiaohongshu_page.analyze_button
         )
         assert analyze.isVisible()
     window.close()
@@ -245,6 +267,9 @@ def test_transcode_panel_exists_only_on_single_download_page(monkeypatch) -> Non
     assert isinstance(window.transcode_panel, TranscodePanel)
     assert not window.transcode_panel.compact
     assert not hasattr(window.douyin_page, "transcode_panel")
+    assert isinstance(window.xiaohongshu_page, XiaohongshuPage)
+    assert not hasattr(window.xiaohongshu_page, "transcode_panel")
+    assert not hasattr(window.xiaohongshu_page, "engine_combo")
     assert not hasattr(window.bilibili_page, "transcode_panel")
     window.close()
 

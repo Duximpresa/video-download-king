@@ -8,6 +8,10 @@ DOUYIN_URL_RE = re.compile(
     r"(?:(?:https?://)?(?:www\.)?(?:douyin\.com|v\.douyin\.com|v\.iesdouyin\.com|iesdouyin\.com)/[^\s]+)",
     re.IGNORECASE,
 )
+XIAOHONGSHU_URL_RE = re.compile(
+    r"(?:(?:https?://)?(?:www\.)?xiaohongshu\.com/[^\s]+|(?:https?://)?xhslink\.com/[^\s]+)",
+    re.IGNORECASE,
+)
 
 PROXY_RECOMMENDED_HOSTS = {
     "youtube.com",
@@ -19,7 +23,7 @@ PROXY_RECOMMENDED_HOSTS = {
 
 
 def detect_platform(url: str) -> str:
-    candidate = extract_douyin_url(url) or url
+    candidate = extract_douyin_url(url) or extract_xiaohongshu_url(url) or url
     if candidate and "://" not in candidate:
         candidate = f"https://{candidate}"
     host = (urlparse(candidate).hostname or "").lower()
@@ -31,6 +35,8 @@ def detect_platform(url: str) -> str:
         return "X"
     if host == "douyin.com" or host.endswith(".douyin.com") or host.endswith(".iesdouyin.com"):
         return "Douyin"
+    if host == "xiaohongshu.com" or host.endswith(".xiaohongshu.com") or host == "xhslink.com" or host.endswith(".xhslink.com"):
+        return "小红书"
     return "未知平台"
 
 
@@ -69,6 +75,14 @@ def validate_first_version_url(url: str) -> str:
 
 def extract_douyin_url(text: str) -> str | None:
     match = DOUYIN_URL_RE.search((text or "").strip())
+    if not match:
+        return None
+    url = match.group(0).rstrip("，。！？、；：,.;:!?)]}>'\"")
+    return url if "://" in url else f"https://{url}"
+
+
+def extract_xiaohongshu_url(text: str) -> str | None:
+    match = XIAOHONGSHU_URL_RE.search((text or "").strip())
     if not match:
         return None
     url = match.group(0).rstrip("，。！？、；：,.;:!?)]}>'\"")
