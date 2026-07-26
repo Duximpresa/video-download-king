@@ -8,6 +8,7 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -51,8 +52,9 @@ def test_xiaohongshu_tabs_follow_bilibili(monkeypatch) -> None:
     dialog = SettingsDialog(AppSettings())
     settings_tabs = dialog.findChild(QTabWidget)
     assert [settings_tabs.tabText(i) for i in range(settings_tabs.count())] == [
-        "代理", "YouTube / X 登录", "抖音登录", "B站登录", "小红书登录", "网络"
+        "代理", "YouTube / Instagram / TikTok / X 登录", "抖音登录", "B站登录", "小红书登录", "网络"
     ]
+    assert "TikTok" in window.url_edit.placeholderText()
 
 
 def test_all_numeric_inputs_hide_step_buttons(monkeypatch) -> None:
@@ -289,6 +291,59 @@ def test_success_completion_uses_logs_without_information_popup(monkeypatch, tmp
         log = page.log.toPlainText()
         assert "下载完成" in log
         assert str(output) in log
+    window.close()
+
+
+def test_open_folder_tracks_latest_successful_output_directory(monkeypatch, tmp_path: Path) -> None:
+    app()
+    monkeypatch.setattr(
+        "video_download_king.main_window.FFmpegService.detect_encoders",
+        lambda self, on_log=None: {"nvidia": False, "intel": False, "amd": False},
+    )
+    opened: list[Path] = []
+    monkeypatch.setattr(
+        QDesktopServices,
+        "openUrl",
+        lambda url: opened.append(Path(url.toLocalFile())),
+    )
+    window = MainWindow()
+    pages_and_callbacks = [
+        (window, window._download_complete),
+        (window.douyin_page, window.douyin_page._download_complete),
+        (window.bilibili_page, window.bilibili_page._complete),
+        (window.xiaohongshu_page, window.xiaohongshu_page._complete),
+    ]
+
+    configured_roots: list[Path] = []
+    for index, (page, _callback) in enumerate(pages_and_callbacks):
+        configured_root = tmp_path / f"configured-{index}"
+        configured_roots.append(configured_root)
+        page.path_edit.setText(str(configured_root))
+        page._open_output()
+        assert opened[-1] == configured_root.resolve()
+        assert configured_root.is_dir()
+
+    actual_dir = tmp_path / "Instagram" / "author"
+    actual_dir.mkdir(parents=True)
+    output = actual_dir / "video.mp4"
+    output.touch()
+    result = TaskResult(True, "完成", output, [output])
+    for page, callback in pages_and_callbacks:
+        callback(result)
+        page._open_output()
+        assert opened[-1] == actual_dir.resolve()
+
+    cancelled = TaskResult(False, "任务已取消", error_category="已取消")
+    for page, callback in pages_and_callbacks:
+        callback(cancelled)
+        page._open_output()
+        assert opened[-1] == actual_dir.resolve()
+
+    output.unlink()
+    actual_dir.rmdir()
+    for configured_root, (page, _callback) in zip(configured_roots, pages_and_callbacks):
+        page._open_output()
+        assert opened[-1] == configured_root.resolve()
     window.close()
 
 

@@ -16,7 +16,7 @@ from .utils import render_filename_template
 class BilibiliPage(QWidget):
     cancel_requested=Signal()
     def __init__(self,settings:AppSettings,store:SettingsStore,parent=None)->None:
-        super().__init__(parent); self.settings=settings; self.store=store; self.media:BilibiliMediaInfo|None=None; self.thread:QThread|None=None; self.worker=None; self._analysis_running=False; self._build_ui(); self._apply_settings()
+        super().__init__(parent); self.settings=settings; self.store=store; self.media:BilibiliMediaInfo|None=None; self.thread:QThread|None=None; self.worker=None; self._analysis_running=False; self._last_output_dir:Path|None=None; self._build_ui(); self._apply_settings()
 
     def _build_ui(self)->None:
         root=QVBoxLayout(self); root.setContentsMargins(8,7,8,7); root.setSpacing(6)
@@ -48,7 +48,7 @@ class BilibiliPage(QWidget):
         try: request=self._request()
         except ValueError as exc: QMessageBox.warning(self,"无法分析",str(exc)); return
         self.media=None; self.parts_table.setRowCount(0); self._analysis_running=True; self._set_busy(True,"正在分析 B站稿件..."); self._analysis_progress()
-        if not self.settings.bilibili_cookie_file and self.settings.cookie_file: self.log.appendPlainText("B站专用 Cookie 未设置，正在使用 YouTube / X 通用 cookies.txt")
+        if not self.settings.bilibili_cookie_file and self.settings.cookie_file: self.log.appendPlainText("B站专用 Cookie 未设置，正在使用 YouTube / Instagram / TikTok / X 通用 cookies.txt")
         worker=BilibiliAnalyzeWorker(request); self._start(worker,worker.run); worker.completed.connect(self._analysis_complete); worker.failed.connect(self._failed)
     def _download(self):
         if self.thread:return
@@ -83,7 +83,9 @@ class BilibiliPage(QWidget):
         self.progress_label.setText(f"{item.stage} {item.current_item}".strip())
     def _complete(self,result:TaskResult):
         self._reset_progress(); self._set_busy(False,result.message)
-        if result.success: self.log.appendPlainText("下载完成\n输出文件：\n"+"\n".join(str(p) for p in result.output_files))
+        if result.success:
+            if result.output_directory is not None:self._last_output_dir=result.output_directory
+            self.log.appendPlainText("下载完成\n输出文件：\n"+"\n".join(str(p) for p in result.output_files))
         elif result.error_category!="已取消": QMessageBox.critical(self,f"B站下载失败：{result.error_category}",result.message)
     def _failed(self,category,message): self.media=None; self._reset_progress(); self._set_busy(False,message); QMessageBox.critical(self,f"B站分析失败：{category}",message)
     def _analysis_progress(self): self.total_progress.setRange(0,0);self.stage_progress.setRange(0,0)
@@ -94,8 +96,10 @@ class BilibiliPage(QWidget):
         path=QFileDialog.getExistingDirectory(self,"选择保存目录",self.path_edit.text());
         if path:self.path_edit.setText(path)
     def _open_output(self):
-        path=Path(self.path_edit.text().strip()).expanduser()
-        path.mkdir(parents=True,exist_ok=True)
+        path=self._last_output_dir
+        if path is None or not path.is_dir():
+            path=Path(self.path_edit.text().strip()).expanduser()
+            path.mkdir(parents=True,exist_ok=True)
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.resolve())))
     def cancel(self):
         if self.worker:self.cancel_button.setEnabled(False);self.stop_analysis_button.setEnabled(False);self.progress_label.setText("正在取消...");self.cancel_requested.emit()

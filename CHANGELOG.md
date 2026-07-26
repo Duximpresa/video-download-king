@@ -2,6 +2,29 @@
 
 本文件汇总 Video Download King 的正式版本变更。日期均为项目本地提交日期。
 
+## 0.8.0 - 2026-07-27
+
+### 新增
+
+- 单链接下载页新增 Instagram 单个 Reel、视频帖子和旧式 IGTV 链接支持，复用现有 `yt-dlp` 分析、格式、封面、命名、平台分类、Cookie 和转码流程。
+- Instagram 轮播或多视频帖子会在分析阶段明确拒绝；主页、Story、直播和批量内容仍不支持。
+- 单链接下载页新增 TikTok 单视频长链及 `vm.tiktok.com`、`vt.tiktok.com`、`tiktok.com/t/...` 分享短链支持，复用现有 `yt-dlp` 下载链路。
+- TikTok 分享短链解析后会再次校验作品类型；图片、轮播、主页、合集、音乐、标签和直播会被明确拒绝。
+
+### 调整与修复
+
+- 通用登录设置更名为“YouTube / Instagram / TikTok / X 登录”，Instagram 和 TikTok 继续复用现有浏览器 Cookie 或 Netscape `cookies.txt`，不新增配置字段。
+- TikTok 链接在未配置代理时与其他海外平台一样显示潜在网络问题提示。
+- 四个下载页面的“打开保存目录”会在任务成功后打开实际输出文件所在目录；尚无成功任务或原目录已删除时回退到配置的保存根目录。
+
+### 验证
+
+- 137 项自动化测试、编译检查、Git 差异检查和打包 EXE 启动烟测均通过。
+- 使用真实 TikTok 长链和 `vt.tiktok.com` 分享短链完成分析；实际下载 MP4 经 FFprobe 验证包含 HEVC 视频流和 AAC 音频流。
+- 发布包：`VideoDownloadKing-v0.8.0-Windows-x64.zip`
+- ZIP 体积：`158.18 MiB`
+- SHA256：`7557C5356A3FA664DB856923D787357DFC3FA3742E6369BBD5BB0ED59C44F7F5`
+
 ## 0.7.0 - 2026-07-14
 
 ### 新增

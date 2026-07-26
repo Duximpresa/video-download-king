@@ -74,6 +74,7 @@ class MainWindow(QMainWindow):
         self.thread: QThread | None = None
         self.worker = None
         self._analysis_running = False
+        self._last_output_dir: Path | None = None
         self.network = QNetworkAccessManager(self)
 
         self.hardware_availability = {"nvidia": False, "intel": False, "amd": False}
@@ -153,7 +154,7 @@ class MainWindow(QMainWindow):
         url_row = QGridLayout()
         url_row.setHorizontalSpacing(6)
         self.url_edit = QLineEdit()
-        self.url_edit.setPlaceholderText("粘贴 YouTube 单视频或 X 单条帖子链接")
+        self.url_edit.setPlaceholderText("粘贴 YouTube、Instagram、TikTok 单视频或 X 单条帖子链接")
         self.clear_url_button, self.paste_url_button = create_url_action_buttons(self.url_edit)
         self.analyze_button = QPushButton("分析链接")
         self.analyze_button.clicked.connect(self._analyze)
@@ -490,14 +491,16 @@ class MainWindow(QMainWindow):
         self.subtitle_summary.setText(f"{', '.join(labels)} · {self.settings.subtitle_format.upper()}")
 
     def _open_output(self) -> None:
-        path = Path(self.path_edit.text()).expanduser()
-        path.mkdir(parents=True, exist_ok=True)
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+        path = self._last_output_dir
+        if path is None or not path.is_dir():
+            path = Path(self.path_edit.text()).expanduser()
+            path.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.resolve())))
 
     def _request_from_ui(self) -> DownloadRequest:
         output = Path(self.path_edit.text().strip()).expanduser()
         if not self.url_edit.text().strip():
-            raise ValueError("请先输入 YouTube 视频或 X 帖子网址")
+            raise ValueError("请先输入 YouTube、Instagram、TikTok 视频或 X 帖子网址")
         if not self.path_edit.text().strip():
             raise ValueError("请选择保存目录")
         template = self.filename_template.text().strip() or "{title} [{id}]"
@@ -754,6 +757,8 @@ class MainWindow(QMainWindow):
 
     def _download_complete(self, result: TaskResult) -> None:
         if result.success:
+            if result.output_directory is not None:
+                self._last_output_dir = result.output_directory
             self.total_progress.setValue(100)
             self.stage_progress.setRange(0, 100)
             self.stage_progress.setValue(100)

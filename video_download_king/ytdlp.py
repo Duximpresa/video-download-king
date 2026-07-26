@@ -9,7 +9,11 @@ from pathlib import Path
 from .formats import format_selector
 from .models import DownloadArtifacts, DownloadRequest, MediaInfo, TaskProgress
 from .paths import deno_path, ffmpeg_dir, yt_dlp_path
-from .platforms import detect_platform, validate_first_version_url
+from .platforms import (
+    detect_platform,
+    is_tiktok_canonical_video_url,
+    validate_first_version_url,
+)
 from .processes import ProcessRunner
 from .utils import render_filename_template, unique_media_stem
 
@@ -106,9 +110,9 @@ class YtDlpService:
         on_log: LogCallback | None = None,
     ) -> MediaInfo:
         platform = detect_platform(url)
-        if platform not in {"YouTube", "X", "Douyin"}:
-            raise ValueError("仅支持 YouTube、X 或抖音单作品链接")
-        if platform == "X":
+        if platform not in {"YouTube", "Instagram", "TikTok", "X", "Douyin"}:
+            raise ValueError("仅支持 YouTube、Instagram、TikTok、X 或抖音单作品链接")
+        if platform in {"Instagram", "TikTok", "X"}:
             validate_first_version_url(url)
         request = DownloadRequest(
             url=url,
@@ -134,6 +138,26 @@ class YtDlpService:
             data = json.loads(output)
         except json.JSONDecodeError as exc:
             raise RuntimeError(f"无法解析 yt-dlp 返回的数据：{exc}") from exc
+        if platform == "Instagram" and (
+            data.get("_type") in {"playlist", "multi_video"} or isinstance(data.get("entries"), list)
+        ):
+            raise ValueError("Instagram 轮播或多视频帖子暂不支持；单链接页仅支持单个视频")
+        if platform == "TikTok":
+            resolved_url = data.get("webpage_url") or data.get("original_url") or ""
+            extractor = str(data.get("extractor_key") or data.get("extractor") or "")
+            has_video_format = any(
+                item.get("vcodec") not in {None, "", "none"}
+                for item in data.get("formats") or []
+                if isinstance(item, dict)
+            )
+            if (
+                data.get("_type") in {"playlist", "multi_video"}
+                or isinstance(data.get("entries"), list)
+                or "tiktok" not in extractor.lower()
+                or not is_tiktok_canonical_video_url(resolved_url)
+                or not has_video_format
+            ):
+                raise ValueError("TikTok 单链接页仅支持单个视频，不支持图片、轮播、直播、主页或列表")
         media = MediaInfo.from_json(data)
         if media.is_live:
             raise ValueError("第一版暂不支持直播下载")

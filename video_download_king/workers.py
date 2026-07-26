@@ -69,7 +69,7 @@ class DownloadWorker(QObject):
     def run(self) -> None:
         try:
             platform = validate_first_version_url(self.request.url)
-            if platform not in {"YouTube", "X"}:
+            if platform not in {"YouTube", "Instagram", "TikTok", "X"}:
                 raise ValueError("请使用独立的【B站下载】页面")
             output_dir = self.request.output_dir
             if self.request.classify_by_platform:

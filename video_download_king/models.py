@@ -152,6 +152,10 @@ class MediaInfo:
             platform = "哔哩哔哩"
         elif "twitter" in extractor_lower or extractor_lower == "x":
             platform = "X"
+        elif "instagram" in extractor_lower:
+            platform = "Instagram"
+        elif "tiktok" in extractor_lower:
+            platform = "TikTok"
         else:
             platform = extractor
         return cls(
@@ -223,6 +227,16 @@ class TaskResult:
     output_path: Path | None = None
     output_files: list[Path] = field(default_factory=list)
     error_category: str = ""
+
+    @property
+    def output_directory(self) -> Path | None:
+        candidates = [*self.output_files]
+        if self.output_path is not None and self.output_path not in candidates:
+            candidates.append(self.output_path)
+        for candidate in candidates:
+            path = Path(candidate)
+            return path if path.is_dir() else path.parent
+        return None
 
 
 @dataclass(slots=True)

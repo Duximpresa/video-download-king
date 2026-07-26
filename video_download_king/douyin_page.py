@@ -41,6 +41,7 @@ class DouyinPage(QWidget):
         self.thread: QThread | None = None
         self.worker = None
         self._analysis_running = False
+        self._last_output_dir: Path | None = None
         self.network = QNetworkAccessManager(self)
         self._build_ui()
         self._apply_settings()
@@ -236,7 +237,7 @@ class DouyinPage(QWidget):
         self._set_busy(True, "正在分析抖音作品...")
         self._set_analysis_progress()
         if not self.settings.douyin_cookie_file and self.settings.cookie_file:
-            self.log.appendPlainText("抖音专用 Cookie 未设置，正在使用 YouTube / X 通用 cookies.txt")
+            self.log.appendPlainText("抖音专用 Cookie 未设置，正在使用 YouTube / Instagram / TikTok / X 通用 cookies.txt")
         worker = DouyinAnalyzeWorker(request)
         self._start_worker(worker, worker.run)
         worker.completed.connect(self._analysis_complete)
@@ -339,6 +340,8 @@ class DouyinPage(QWidget):
 
     def _download_complete(self, result: TaskResult) -> None:
         if result.success:
+            if result.output_directory is not None:
+                self._last_output_dir = result.output_directory
             self.total_progress.setValue(100)
             self.stage_progress.setRange(0, 100)
             self.stage_progress.setValue(100)
@@ -411,9 +414,11 @@ class DouyinPage(QWidget):
             self.path_edit.setText(path)
 
     def _open_output(self) -> None:
-        path = Path(self.path_edit.text()).expanduser()
-        path.mkdir(parents=True, exist_ok=True)
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+        path = self._last_output_dir
+        if path is None or not path.is_dir():
+            path = Path(self.path_edit.text()).expanduser()
+            path.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.resolve())))
 
     def _save_settings(self) -> None:
         self.settings.save_path = self.path_edit.text().strip()

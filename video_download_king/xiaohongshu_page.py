@@ -29,6 +29,7 @@ class XiaohongshuPage(QWidget):
         self.thread: QThread | None = None
         self.worker = None
         self._analysis_running = False
+        self._last_output_dir: Path | None = None
         self.network = QNetworkAccessManager(self)
         self._build_ui()
         self._apply_settings()
@@ -102,7 +103,7 @@ class XiaohongshuPage(QWidget):
         try: request = self._request()
         except ValueError as exc: QMessageBox.warning(self, "无法分析", str(exc)); return
         self.media = None; self._analysis_running = True; self._set_busy(True, "正在分析小红书笔记..."); self.total_progress.setRange(0, 0); self.stage_progress.setRange(0, 0)
-        if not self.settings.xiaohongshu_cookie_file and self.settings.cookie_file: self.log.appendPlainText("小红书专用 Cookie 未设置，正在使用 YouTube / X 通用 cookies.txt")
+        if not self.settings.xiaohongshu_cookie_file and self.settings.cookie_file: self.log.appendPlainText("小红书专用 Cookie 未设置，正在使用 YouTube / Instagram / TikTok / X 通用 cookies.txt")
         worker = XiaohongshuAnalyzeWorker(request); self._start(worker, worker.run); worker.completed.connect(self._analysis_complete); worker.failed.connect(self._failed)
 
     def _download(self) -> None:
@@ -135,7 +136,9 @@ class XiaohongshuPage(QWidget):
 
     def _complete(self, result: TaskResult) -> None:
         self._reset_progress(); self._set_busy(False, result.message)
-        if result.success: self.log.appendPlainText("下载完成\n输出文件：\n" + "\n".join(str(path) for path in result.output_files))
+        if result.success:
+            if result.output_directory is not None: self._last_output_dir = result.output_directory
+            self.log.appendPlainText("下载完成\n输出文件：\n" + "\n".join(str(path) for path in result.output_files))
         elif result.error_category != "已取消": QMessageBox.critical(self, f"小红书下载失败：{result.error_category}", result.message)
 
     def _progress(self, item: TaskProgress) -> None:
@@ -162,7 +165,10 @@ class XiaohongshuPage(QWidget):
         if path: self.path_edit.setText(path)
 
     def _open_output(self) -> None:
-        path = Path(self.path_edit.text().strip()).expanduser(); path.mkdir(parents=True, exist_ok=True); QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.resolve())))
+        path = self._last_output_dir
+        if path is None or not path.is_dir():
+            path = Path(self.path_edit.text().strip()).expanduser(); path.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.resolve())))
 
     def _reset_progress(self) -> None:
         self.total_progress.setRange(0, 100); self.total_progress.setValue(0); self.stage_progress.setRange(0, 100); self.stage_progress.setValue(0)

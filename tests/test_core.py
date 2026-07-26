@@ -9,10 +9,12 @@ from video_download_king.config import AppSettings, SettingsStore
 from video_download_king.errors import categorize_error, user_facing_error
 from video_download_king.formats import format_selector
 from video_download_king.models import (
+    DownloadArtifacts,
     DownloadRequest,
     MediaInfo,
     ProxyConfig,
     SubtitleSelection,
+    TaskResult,
     TranscodeConfig,
 )
 from video_download_king.network_test import validate_test_url
@@ -30,12 +32,26 @@ from video_download_king.utils import (
     unique_path,
 )
 from video_download_king.ytdlp import DownloadProgressTracker, PROGRESS_RE, YtDlpService
+from video_download_king.workers import DownloadWorker
 
 
 def request(**kwargs) -> DownloadRequest:
     defaults = {"url": "https://youtu.be/abc", "output_dir": Path("downloads")}
     defaults.update(kwargs)
     return DownloadRequest(**defaults)
+
+
+class JsonRunner:
+    def __init__(self, payload: dict) -> None:
+        self.payload = payload
+        self.commands: list[list[str]] = []
+
+    def run(self, args, **kwargs) -> tuple[int, str]:
+        self.commands.append([str(item) for item in args])
+        return 0, json.dumps(self.payload)
+
+    def cancel(self) -> None:
+        pass
 
 
 def test_proxy_urls_and_password_is_not_persisted() -> None:
@@ -48,6 +64,23 @@ def test_proxy_urls_and_password_is_not_persisted() -> None:
 def test_proxy_requires_host_and_port() -> None:
     with pytest.raises(ValueError):
         ProxyConfig("http").url()
+
+
+def test_task_result_output_directory(tmp_path: Path) -> None:
+    primary = tmp_path / "Instagram" / "video.mp4"
+    sidecar = tmp_path / "Instagram" / "video.jpg"
+    fallback = tmp_path / "other" / "fallback.mp4"
+    primary.parent.mkdir()
+    primary.touch()
+    sidecar.touch()
+
+    assert TaskResult(True, "完成", fallback, [primary, sidecar]).output_directory == primary.parent
+    assert TaskResult(True, "完成", fallback, []).output_directory == fallback.parent
+    assert TaskResult(True, "完成").output_directory is None
+
+    directory_result = tmp_path / "gallery"
+    directory_result.mkdir()
+    assert TaskResult(True, "完成", directory_result).output_directory == directory_result
 
 
 @pytest.mark.parametrize(
@@ -87,6 +120,9 @@ def test_platform_scope() -> None:
     assert detect_platform("https://b23.tv/example") == "哔哩哔哩"
     assert detect_platform("https://x.com/openai/status/123456") == "X"
     assert detect_platform("https://twitter.com/openai/status/123456") == "X"
+    assert detect_platform("https://www.instagram.com/reel/ABC_123-/") == "Instagram"
+    assert detect_platform("https://www.tiktok.com/@creator/video/1234567890") == "TikTok"
+    assert detect_platform("https://vm.tiktok.com/ZMExample/") == "TikTok"
     assert validate_first_version_url("https://www.bilibili.com/video/BV1xx411c7mD") == "哔哩哔哩"
     assert validate_first_version_url("https://x.com/openai/status/123456") == "X"
     assert validate_first_version_url("https://x.com/bytopux/status/2076210959723466833/video/1") == "X"
@@ -99,6 +135,70 @@ def test_platform_scope() -> None:
         validate_first_version_url("https://x.com/i/spaces/123456")
     with pytest.raises(ValueError):
         validate_first_version_url("https://example.com/video")
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://www.instagram.com/reel/ABC_123-/",
+        "https://instagram.com/reels/ABC_123-/?utm_source=copy_link",
+        "https://www.instagram.com/p/ABC_123-/",
+        "https://www.instagram.com/tv/ABC_123-/",
+        "https://www.instagram.com/example.user/reel/ABC_123-/",
+        "instagram.com/p/ABC_123-",
+    ],
+)
+def test_instagram_single_video_urls_are_supported(url: str) -> None:
+    assert validate_first_version_url(url) == "Instagram"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://www.instagram.com/example.user/",
+        "https://www.instagram.com/stories/example.user/123/",
+        "https://www.instagram.com/explore/tags/video/",
+        "https://www.instagram.com/live/123/",
+        "https://www.instagram.com/reels/audio/123/",
+        "https://www.instagram.com/share/reel/ABC_123-/",
+        "https://www.instagram.com/p/",
+    ],
+)
+def test_instagram_non_single_video_urls_are_rejected(url: str) -> None:
+    with pytest.raises(ValueError, match="仅支持单个 Reel、视频帖子或 IGTV"):
+        validate_first_version_url(url)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://www.tiktok.com/@creator.name/video/1234567890",
+        "https://tiktok.com/@creator_name/video/1234567890?is_from_webapp=1",
+        "tiktok.com/@creator-name/video/1234567890",
+        "https://vm.tiktok.com/ZMExample/",
+        "https://vt.tiktok.com/ZSExample/",
+        "https://www.tiktok.com/t/ZTExample/",
+    ],
+)
+def test_tiktok_single_video_urls_are_supported(url: str) -> None:
+    assert validate_first_version_url(url) == "TikTok"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://www.tiktok.com/@creator.name",
+        "https://www.tiktok.com/@creator.name/photo/1234567890",
+        "https://www.tiktok.com/@creator.name/live",
+        "https://www.tiktok.com/@creator.name/collection/favorites-1234567890",
+        "https://www.tiktok.com/music/example-1234567890",
+        "https://www.tiktok.com/tag/example",
+        "https://m.tiktok.com/v/1234567890.html",
+    ],
+)
+def test_tiktok_non_single_video_urls_are_rejected(url: str) -> None:
+    with pytest.raises(ValueError, match="仅支持单个视频长链或分享短链"):
+        validate_first_version_url(url)
 
 
 def test_bilibili_media_info_uses_chinese_platform_name() -> None:
@@ -125,6 +225,174 @@ def test_twitter_media_info_uses_x_platform_name() -> None:
     assert media.platform == "X"
 
 
+def test_instagram_media_info_uses_platform_name() -> None:
+    media = MediaInfo.from_json(
+        {
+            "extractor_key": "Instagram",
+            "webpage_url": "https://www.instagram.com/reel/ABC_123-/",
+            "title": "测试 Reel",
+            "id": "ABC_123-",
+        }
+    )
+    assert media.platform == "Instagram"
+
+
+def test_tiktok_media_info_uses_platform_name() -> None:
+    media = MediaInfo.from_json(
+        {
+            "extractor_key": "TikTok",
+            "webpage_url": "https://www.tiktok.com/@creator/video/1234567890",
+            "title": "测试 TikTok",
+            "id": "1234567890",
+        }
+    )
+    assert media.platform == "TikTok"
+
+
+def test_instagram_analysis_reuses_common_cookie() -> None:
+    runner = JsonRunner(
+        {
+            "extractor_key": "Instagram",
+            "webpage_url": "https://www.instagram.com/reel/ABC_123-/",
+            "title": "测试 Reel",
+            "id": "ABC_123-",
+        }
+    )
+    media = YtDlpService(runner).analyze(
+        "https://www.instagram.com/reel/ABC_123-/",
+        cookie_file="common.txt",
+    )
+    assert media.platform == "Instagram"
+    assert "--cookies" in runner.commands[0]
+    assert "common.txt" in runner.commands[0]
+
+
+def test_instagram_carousel_analysis_is_rejected() -> None:
+    runner = JsonRunner(
+        {
+            "_type": "playlist",
+            "extractor_key": "Instagram",
+            "id": "ABC_123-",
+            "entries": [{"id": "one"}, {"id": "two"}],
+        }
+    )
+    with pytest.raises(ValueError, match="轮播或多视频帖子.*仅支持单个视频"):
+        YtDlpService(runner).analyze("https://www.instagram.com/p/ABC_123-/")
+
+
+def test_tiktok_short_link_analysis_reuses_common_cookie() -> None:
+    runner = JsonRunner(
+        {
+            "_type": "video",
+            "extractor_key": "TikTok",
+            "webpage_url": "https://www.tiktok.com/@/video/1234567890",
+            "title": "测试 TikTok",
+            "id": "1234567890",
+            "formats": [{"format_id": "h264", "vcodec": "h264", "acodec": "aac"}],
+        }
+    )
+    media = YtDlpService(runner).analyze(
+        "https://vm.tiktok.com/ZMExample/",
+        cookie_file="common.txt",
+    )
+    assert media.platform == "TikTok"
+    assert "--cookies" in runner.commands[0]
+    assert "common.txt" in runner.commands[0]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "_type": "playlist",
+            "extractor_key": "TikTok",
+            "webpage_url": "https://www.tiktok.com/@creator/video/1234567890",
+            "entries": [{"id": "one"}, {"id": "two"}],
+            "formats": [{"vcodec": "h264"}],
+        },
+        {
+            "_type": "video",
+            "extractor_key": "TikTok",
+            "webpage_url": "https://www.tiktok.com/@creator/photo/1234567890",
+            "formats": [{"vcodec": "h264"}],
+        },
+        {
+            "_type": "video",
+            "extractor_key": "TikTok",
+            "webpage_url": "https://www.tiktok.com/@creator/video/1234567890",
+            "formats": [],
+        },
+    ],
+)
+def test_tiktok_short_link_must_resolve_to_one_video(payload: dict) -> None:
+    with pytest.raises(ValueError, match="仅支持单个视频.*不支持图片"):
+        YtDlpService(JsonRunner(payload)).analyze("https://vt.tiktok.com/ZSExample/")
+
+
+def test_instagram_download_uses_platform_directory(tmp_path: Path) -> None:
+    class StubDownloader:
+        def __init__(self) -> None:
+            self.output_dir: Path | None = None
+
+        def download(self, download_request, output_dir, on_progress, on_log) -> DownloadArtifacts:
+            self.output_dir = output_dir
+            output_dir.mkdir(parents=True)
+            media_path = output_dir / "video.mp4"
+            media_path.touch()
+            return DownloadArtifacts(media_path)
+
+        def cancel(self) -> None:
+            pass
+
+    worker = DownloadWorker(
+        request(
+            url="https://www.instagram.com/reel/ABC_123-/",
+            output_dir=tmp_path,
+            mode="video_only",
+            media_platform="Instagram",
+        )
+    )
+    downloader = StubDownloader()
+    worker.downloader = downloader
+    results = []
+    worker.completed.connect(results.append)
+    worker.run()
+    assert downloader.output_dir == tmp_path / "Instagram"
+    assert results and results[0].success
+
+
+def test_tiktok_download_uses_platform_directory(tmp_path: Path) -> None:
+    class StubDownloader:
+        def __init__(self) -> None:
+            self.output_dir: Path | None = None
+
+        def download(self, download_request, output_dir, on_progress, on_log) -> DownloadArtifacts:
+            self.output_dir = output_dir
+            output_dir.mkdir(parents=True)
+            media_path = output_dir / "video.mp4"
+            media_path.touch()
+            return DownloadArtifacts(media_path)
+
+        def cancel(self) -> None:
+            pass
+
+    worker = DownloadWorker(
+        request(
+            url="https://www.tiktok.com/@creator/video/1234567890",
+            output_dir=tmp_path,
+            mode="video_only",
+            media_platform="TikTok",
+        )
+    )
+    downloader = StubDownloader()
+    worker.downloader = downloader
+    results = []
+    worker.completed.connect(results.append)
+    worker.run()
+    assert downloader.output_dir == tmp_path / "TikTok"
+    assert results and results[0].success
+
+
 def test_bilibili_412_has_actionable_cookie_guidance() -> None:
     error = "ERROR: [BiliBili] HTTP Error 412: Precondition Failed"
     assert categorize_error(error) == "Cookie/风控"
@@ -139,6 +407,8 @@ def test_bilibili_412_has_actionable_cookie_guidance() -> None:
         ("https://www.youtube.com/watch?v=x", "YouTube"),
         ("youtu.be/x", "YouTube"),
         ("https://www.instagram.com/reel/x/", "Instagram"),
+        ("https://www.tiktok.com/@creator/video/1", "TikTok"),
+        ("https://vm.tiktok.com/ZMExample/", "TikTok"),
         ("https://x.com/user/status/1", "X"),
         ("https://twitter.com/user/status/1", "X"),
     ],

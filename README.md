@@ -1,6 +1,6 @@
-# Video Download King 0.7.0
+# Video Download King 0.8.0
 
-面向 Windows 11 的中文桌面视频下载器。支持 YouTube 单视频、X 单条视频帖子、哔哩哔哩单稿件/多分P、抖音单视频/图集，以及小红书单篇视频/图文。YouTube 与 X 使用 `yt-dlp`，B站、抖音和小红书提供独立自研下载引擎。
+面向 Windows 11 的中文桌面视频下载器。支持 YouTube 单视频、Instagram 单个 Reel/视频帖子、TikTok 单视频、X 单条视频帖子、哔哩哔哩单稿件/多分P、抖音单视频/图集，以及小红书单篇视频/图文。YouTube、Instagram、TikTok 与 X 使用 `yt-dlp`，B站、抖音和小红书提供独立自研下载引擎。
 
 项目维护与智能体交接参见 [AGENTS.md](AGENTS.md)，逐版本变更参见 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -25,7 +25,7 @@
 - 可选封面 JPG、字幕 SRT、弹幕 ASS 和元数据 NFO
 - B站独立 Netscape `cookies.txt`，仅使用账号正常拥有的播放权限
 
-- YouTube 单视频与 X 单条帖子分析下载
+- YouTube 单视频、Instagram 单个 Reel/视频帖子、TikTok 单视频与 X 单条帖子分析下载
 - 视频+音频、仅视频、仅音频和高级流组合
 - 最高、2160p、1440p、1080p、720p、480p、最低和自定义画质
 - 视频流与音频流高级组合
@@ -42,7 +42,7 @@
 - 独立封面下载模式，以及可选封面、字幕附属文件下载
 - 总任务与当前阶段双进度条，显示下载流、速度、大小和 ETA
 - 分析链接时显示忙碌进度，可随时取消卡住的分析任务
-- YouTube、Instagram、X 链接在未配置代理时提示潜在网络问题
+- YouTube、Instagram、TikTok、X 链接在未配置代理时提示潜在网络问题
 - 代理设置支持自定义网址的异步网络连通性测试
 - 分析后按人工/自动来源选择字幕，支持多选及 SRT/VTT
 - 自动编码后缀或自定义转码文件后缀
@@ -79,13 +79,13 @@ Deno 是 yt-dlp 官方推荐的 YouTube JavaScript 挑战运行时，程序会�
 ## 构建便携版
 
 ```powershell
-.\build_release.ps1 -Version 0.7.0
+.\build_release.ps1 -Version 0.8.0
 ```
 
 脚本会先运行测试，再使用 PyInstaller 生成目录版程序，并创建：
 
 ```text
-release/VideoDownloadKing-v0.7.0-Windows-x64.zip
+release/VideoDownloadKing-v0.8.0-Windows-x64.zip
 ```
 
 ## 使用说明
@@ -106,10 +106,11 @@ release/VideoDownloadKing-v0.7.0-Windows-x64.zip
 
 单链接下载：
 
-1. 输入 YouTube 单视频，或 `x.com` / `twitter.com` 单条帖子及其 `/video/序号` 链接并点击“分析链接”。
+1. 输入 YouTube 单视频、Instagram `/reel/`、`/reels/`、`/p/`、`/tv/` 单视频作品、TikTok `@用户/video/数字ID` 长链或 `vm.tiktok.com`、`vt.tiktok.com`、`tiktok.com/t/...` 分享短链，或 `x.com` / `twitter.com` 单条帖子及其 `/video/序号` 链接并点击“分析链接”。Instagram 轮播、多视频帖子、Story、直播和主页不支持；TikTok 图片、轮播、主页、合集、音乐、标签和直播不支持。
 2. 选择“视频+音频”“仅视频”“仅音频”“仅封面”或“高级流组合”。
 3. 可使用 `{title}`、`{id}`、`{channel}`、`{platform}`、`{upload_date}`、`{download_date}` 自定义文件名。
 4. 分析完成后点击“选择字幕”，可搜索并多选人工或自动字幕，同时选择 SRT/VTT 输出格式。
+5. Instagram 或 TikTok 受限内容、匿名访问受限时，可在“设置 > YouTube / Instagram / TikTok / X 登录”配置浏览器 Cookie 或 Netscape `cookies.txt`。
 
 B站下载：
 
@@ -128,4 +129,4 @@ B站下载：
 
 ## 暂不支持
 
-播放列表、B站合集/番剧/课程/直播/互动视频、抖音主页/合集/音乐/直播、小红书主页/搜索/收藏/批量/RedNote、并发任务、字幕嵌入、批量任务和自动更新将在后续版本评估。
+播放列表、Instagram 轮播/多视频帖子/Story/直播/主页、TikTok 图片/轮播/主页/合集/音乐/标签/直播、B站合集/番剧/课程/直播/互动视频、抖音主页/合集/音乐/直播、小红书主页/搜索/收藏/批量/RedNote、并发任务、字幕嵌入、批量任务和自动更新将在后续版本评估。

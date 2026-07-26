@@ -34,7 +34,7 @@ class SettingsDialog(QDialog):
 
         tabs = QTabWidget()
         tabs.addTab(self._build_proxy_tab(settings), "代理")
-        tabs.addTab(self._build_cookie_tab(settings), "YouTube / X 登录")
+        tabs.addTab(self._build_cookie_tab(settings), "YouTube / Instagram / TikTok / X 登录")
         tabs.addTab(self._build_douyin_cookie_tab(settings), "抖音登录")
         tabs.addTab(self._build_bilibili_cookie_tab(settings), "B站登录")
         tabs.addTab(self._build_xiaohongshu_cookie_tab(settings), "小红书登录")
@@ -142,7 +142,7 @@ class SettingsDialog(QDialog):
         row.addWidget(browse)
         row.addWidget(self.clear_douyin_cookie_button)
         form.addRow("Netscape cookies.txt", row)
-        hint = QLabel("未设置时会使用 YouTube / X 页的通用 cookies.txt；已填写但文件无效时会直接报错。")
+        hint = QLabel("未设置时会使用 YouTube / Instagram / TikTok / X 页的通用 cookies.txt；已填写但文件无效时会直接报错。")
         hint.setWordWrap(True)
         form.addRow("说明", hint)
         return page
@@ -160,7 +160,7 @@ class SettingsDialog(QDialog):
         row.addWidget(browse)
         row.addWidget(self.clear_bilibili_cookie_button)
         form.addRow("Netscape cookies.txt", row)
-        hint = QLabel("仅用于自研 B站引擎。未设置时会使用 YouTube / X 页的通用 cookies.txt；会员或受限画质取决于账号的正常播放权限。")
+        hint = QLabel("仅用于自研 B站引擎。未设置时会使用 YouTube / Instagram / TikTok / X 页的通用 cookies.txt；会员或受限画质取决于账号的正常播放权限。")
         hint.setWordWrap(True)
         form.addRow("说明", hint)
         return page
@@ -178,7 +178,7 @@ class SettingsDialog(QDialog):
         row.addWidget(browse)
         row.addWidget(self.clear_xiaohongshu_cookie_button)
         form.addRow("Netscape cookies.txt", row)
-        hint = QLabel("仅用于自研小红书引擎；未设置时会使用 YouTube / X 页的通用 cookies.txt。遇到登录限制或安全验证时，请导出最新的小红书网站 Cookie。")
+        hint = QLabel("仅用于自研小红书引擎；未设置时会使用 YouTube / Instagram / TikTok / X 页的通用 cookies.txt。遇到登录限制或安全验证时，请导出最新的小红书网站 Cookie。")
         hint.setWordWrap(True)
         form.addRow("说明", hint)
         return page
