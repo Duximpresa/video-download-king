@@ -19,13 +19,11 @@ from aiohttp_socks import ProxyConnector
 
 from .models import (
     TaskProgress,
-    TranscodeConfig,
     XiaohongshuAsset,
     XiaohongshuDownloadRequest,
     XiaohongshuMediaInfo,
 )
 from .processes import ProcessCancelled
-from .transcode import FFmpegService
 from .utils import render_filename_template, sanitize_filename, unique_path
 
 
@@ -284,11 +282,9 @@ def select_video_asset(
 class XiaohongshuService:
     def __init__(self) -> None:
         self._cancel = Event()
-        self._transcoder = FFmpegService()
 
     def cancel(self) -> None:
         self._cancel.set()
-        self._transcoder.cancel()
 
     def _check_cancelled(self) -> None:
         if self._cancel.is_set():
@@ -494,75 +490,16 @@ class XiaohongshuService:
         if request.download_thumbnail and media.cover_asset:
             tasks.append((media.cover_asset, f"{stem}.cover", False))
         output: list[Path] = []
-        needs_compatibility_check = asset.codec == "original"
-
-        def download_progress(progress: TaskProgress) -> None:
-            if needs_compatibility_check and progress.total_percent is not None:
-                progress.total_percent *= 0.8
-            on_progress(progress)
-
         for completed, (item, name, required) in enumerate(tasks):
             try:
                 output.append(
-                    await self._download_asset(
-                        session, proxy, item, staging, name, completed, len(tasks),
-                        download_progress if needs_compatibility_check else on_progress, on_log,
-                    )
+                    await self._download_asset(session, proxy, item, staging, name, completed, len(tasks), on_progress, on_log)
                 )
             except Exception as exc:
                 if required:
                     raise
                 on_log(f"封面下载失败，主视频仍然保留：{exc}")
-        if needs_compatibility_check and output:
-            output[0] = self._ensure_original_video_compatible(output[0], on_progress, on_log)
         return output
-
-    def _ensure_original_video_compatible(
-        self, source: Path, on_progress: ProgressCallback, on_log: LogCallback
-    ) -> Path:
-        info = self._transcoder.probe(source)
-        if info.is_mp4 and info.video_compatible and info.audio_compatible:
-            on_log("无水印原视频已是 H.264/AAC MP4，无需转换")
-            on_progress(TaskProgress("兼容性检测", 100, 100, message="无水印原视频可直接播放"))
-            return source
-
-        on_log(
-            f"无水印原视频使用 {info.video_codec.upper() or '未知'} 编码，"
-            "正在转为兼容 Windows 播放器的 H.264 MP4"
-        )
-
-        def transcode_progress(progress: TaskProgress) -> None:
-            stage = progress.stage_percent
-            on_progress(
-                TaskProgress(
-                    progress.stage,
-                    80 + (stage or 0) * 0.2 if stage is not None else 80,
-                    stage,
-                    stage_indeterminate=progress.stage_indeterminate,
-                    message="正在转换无水印原视频为兼容 MP4",
-                )
-            )
-
-        converted = self._transcoder.convert(
-            source,
-            TranscodeConfig(
-                enabled=True,
-                keep_source=False,
-                rate_mode="cq",
-                quality=18,
-                audio_convert=False,
-                audio_codec="copy",
-                video_encoder="cpu",
-                suffix_mode="custom",
-                custom_suffix="兼容",
-            ),
-            transcode_progress,
-            on_log,
-        )
-        if converted != source:
-            converted.replace(source)
-        on_progress(TaskProgress("兼容性转换", 100, 100, message="无水印兼容 MP4 已生成"))
-        return source
 
     async def _download_gallery(
         self, session, proxy, staging, output_dir, stem, media, on_progress, on_log
