@@ -36,6 +36,7 @@ _URL_RE = re.compile(
     re.IGNORECASE,
 )
 _NOTE_ID_RE = re.compile(r"/(?:explore|item)/([0-9a-f]+)|/user/profile/[0-9a-f]+/([0-9a-f]+)", re.I)
+_EMPTY_MAP_RE = re.compile(r"new\s+Map\s*\(\s*\[\s*\]\s*\)")
 _USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36"
@@ -143,7 +144,7 @@ def resolve_xiaohongshu_output_dir(
     return result
 
 
-def _replace_js_undefined(text: str) -> str:
+def _normalize_initial_state_js(text: str) -> str:
     output: list[str] = []
     index = 0
     quote = ""
@@ -165,6 +166,14 @@ def _replace_js_undefined(text: str) -> str:
             output.append(char)
             index += 1
             continue
+        empty_map = _EMPTY_MAP_RE.match(text, index)
+        if empty_map:
+            before = text[index - 1] if index else ""
+            after = text[empty_map.end()] if empty_map.end() < len(text) else ""
+            if not (before.isalnum() or before in "_$" or after.isalnum() or after in "_$"):
+                output.append("[]")
+                index = empty_map.end()
+                continue
         if text.startswith("undefined", index):
             before = text[index - 1] if index else ""
             after = text[index + 9] if index + 9 < len(text) else ""
@@ -184,7 +193,7 @@ def parse_initial_state(html: str) -> dict[str, Any]:
         raise ValueError("页面中没有找到小红书笔记数据，可能需要更新 Cookie 或通过验证")
     source = parser.states[-1].split("=", 1)[1].strip().rstrip(";")
     try:
-        return json.loads(_replace_js_undefined(source))
+        return json.loads(_normalize_initial_state_js(source))
     except (ValueError, TypeError) as exc:
         raise ValueError("小红书笔记数据格式已变化，暂时无法解析") from exc
 
@@ -354,8 +363,7 @@ class XiaohongshuService:
             )
         stream = _deep_get(note, "video", "media", "stream")
         if isinstance(stream, dict):
-            for codec in ("h264", "h265"):
-                items = stream.get(codec)
+            for stream_type, items in stream.items():
                 if not isinstance(items, list):
                     continue
                 for item in items:
@@ -366,7 +374,8 @@ class XiaohongshuService:
                         video_assets.append(
                             XiaohongshuAsset(
                                 "video", urls, width=item.get("width"), height=item.get("height"),
-                                bitrate=item.get("videoBitrate"), size=item.get("size"), codec=codec,
+                                bitrate=item.get("videoBitrate"), size=item.get("size"),
+                                codec=str(item.get("videoCodec") or stream_type),
                                 extension=".mp4",
                             )
                         )

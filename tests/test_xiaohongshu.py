@@ -44,12 +44,17 @@ def test_xiaohongshu_url_and_share_text_validation() -> None:
         validate_xiaohongshu_url(f"{NOTE_URL} {NOTE_URL}")
 
 
-def test_initial_state_desktop_mobile_and_undefined() -> None:
+def test_initial_state_desktop_mobile_and_javascript_values() -> None:
     note = {"noteId": "1", "title": "标题", "type": "normal", "imageList": []}
     desktop = parse_initial_state(_html({"note": {"noteDetailMap": {"1": {"note": note}}}}, undefined=True))
     assert extract_note_data(desktop)["title"] == "标题"
     mobile = parse_initial_state(_html({"noteData": {"data": {"noteData": note}}}))
     assert extract_note_data(mobile)["noteId"] == "1"
+    mapped = parse_initial_state(
+        '<script>window.__INITIAL_STATE__={"cache":new Map([]),'
+        '"spaced":new Map ( [ ] ),"text":"new Map([])"}</script>'
+    )
+    assert mapped == {"cache": [], "spaced": [], "text": "new Map([])"}
 
 
 def test_media_parses_video_images_and_live_photo() -> None:
@@ -76,6 +81,19 @@ def test_media_parses_video_images_and_live_photo() -> None:
     )
     assert video.media_type == "video"
     assert video.video_assets[0].codec == "original"
+
+    current_video = XiaohongshuService._media_from_note(
+        NOTE_URL,
+        {
+            "noteId": "3", "title": "新视频流", "type": "video", "imageList": [{}],
+            "video": {"media": {"stream": {"EF4": [{
+                "masterUrl": "https://cdn/current.mp4", "videoCodec": "h264",
+                "width": 1920, "height": 1080, "videoBitrate": 2000, "size": 100,
+            }]}}},
+        },
+    )
+    assert current_video.video_assets[0].urls == ("https://cdn/current.mp4",)
+    assert current_video.video_assets[0].codec == "h264"
 
 
 def test_video_selection_and_image_url() -> None:
