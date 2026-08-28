@@ -104,6 +104,15 @@ def test_video_selection_and_image_url() -> None:
     assert select_video_asset(assets, "resolution").urls == ("high",)
     assert select_video_asset(assets, "bitrate").urls == ("high",)
     assert select_video_asset(assets, "size").urls == ("low",)
+    compatible = XiaohongshuAsset(
+        "video", ("playable",), width=720, height=1280, bitrate=1200, codec="EF4"
+    )
+    private = XiaohongshuAsset(
+        "video", ("unplayable",), width=1080, height=1920, bitrate=700, codec="EF5"
+    )
+    assert select_video_asset([compatible, private], "resolution") == compatible
+    with pytest.raises(ValueError, match="EF5"):
+        select_video_asset([private], "resolution")
     assert image_url("https://sns-img-bd.xhscdn.com/a/b!tag", "auto").endswith("/a/b")
     assert image_url("https://sns-webpic.xhscdn.com/20260714/signature/stable-token!tag", "auto").endswith("/stable-token")
 

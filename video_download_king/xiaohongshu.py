@@ -257,6 +257,14 @@ def select_video_asset(
         raise ValueError("该笔记没有可下载的视频资源")
     if any(asset.codec == "original" for asset in assets):
         return next(asset for asset in assets if asset.codec == "original")
+    compatible = [
+        asset
+        for asset in assets
+        if not asset.codec.upper().startswith("EF") or asset.codec.upper() == "EF4"
+    ]
+    if not compatible:
+        codecs = "、".join(sorted({asset.codec or "未知" for asset in assets}))
+        raise ValueError(f"该笔记仅提供播放器不兼容的视频编码：{codecs}")
     key = {
         "resolution": lambda item: (item.width or 0) * (item.height or 0),
         "bitrate": lambda item: item.bitrate or 0,
@@ -264,7 +272,7 @@ def select_video_asset(
     }.get(preference)
     if key is None:
         raise ValueError("无效的视频质量偏好")
-    return max(assets, key=key)
+    return max(compatible, key=key)
 
 
 class XiaohongshuService:
@@ -438,6 +446,15 @@ class XiaohongshuService:
             ) as session:
                 if media.media_type == "video":
                     asset = select_video_asset(media.video_assets, request.video_preference)
+                    skipped = [
+                        item.codec
+                        for item in media.video_assets
+                        if item.codec.upper().startswith("EF") and item.codec.upper() != "EF4"
+                    ]
+                    if skipped:
+                        on_log(
+                            f"已跳过 {len(skipped)} 条播放器不兼容的视频流（{', '.join(sorted(set(skipped))) or '未知编码'}）"
+                        )
                     files = await self._download_video(
                         session, request_proxy, staging, stem, asset, media, request, on_progress, on_log
                     )
