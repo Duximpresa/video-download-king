@@ -1,6 +1,6 @@
 [project]
 name = "video-download-king"
-version = "0.8.2"
+version = "0.8.3"
 description = "Portable Windows 11 desktop downloader for YouTube, Instagram, TikTok, X, Bilibili, Douyin and Xiaohongshu"
 requires-python = ">=3.12"
 dependencies = [

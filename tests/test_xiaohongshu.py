@@ -7,9 +7,14 @@ from pathlib import Path
 import pytest
 from aiohttp_socks import ProxyConnector
 
-from video_download_king.models import XiaohongshuAsset, XiaohongshuDownloadRequest
+from video_download_king.models import (
+    TaskProgress,
+    XiaohongshuAsset,
+    XiaohongshuDownloadRequest,
+)
 from video_download_king.config import SettingsStore
 from video_download_king.platforms import detect_platform
+from video_download_king.transcode import ProbeInfo
 from video_download_king.xiaohongshu import (
     XiaohongshuService,
     extract_note_data,
@@ -115,6 +120,37 @@ def test_video_selection_and_image_url() -> None:
         select_video_asset([private], "resolution")
     assert image_url("https://sns-img-bd.xhscdn.com/a/b!tag", "auto").endswith("/a/b")
     assert image_url("https://sns-webpic.xhscdn.com/20260714/signature/stable-token!tag", "auto").endswith("/stable-token")
+
+
+def test_original_video_compatibility_conversion_replaces_source(tmp_path: Path) -> None:
+    source = tmp_path / "original.mp4"
+    source.write_bytes(b"hevc source")
+
+    class FakeTranscoder:
+        def probe(self, path: Path) -> ProbeInfo:
+            assert path == source
+            return ProbeInfo({"mov", "mp4"}, "hevc", "aac")
+
+        def convert(self, path, config, on_progress, on_log):
+            assert path == source
+            assert config.video_encoder == "cpu"
+            assert config.quality == 18
+            path.unlink()
+            converted = path.with_name("original-compatible.mp4")
+            converted.write_bytes(b"h264 result")
+            on_progress(TaskProgress("转码", stage_percent=50))
+            return converted
+
+        def cancel(self) -> None:
+            pass
+
+    service = XiaohongshuService()
+    service._transcoder = FakeTranscoder()
+    progress: list[TaskProgress] = []
+    result = service._ensure_original_video_compatible(source, progress.append, lambda _text: None)
+    assert result == source
+    assert source.read_bytes() == b"h264 result"
+    assert progress[-1].total_percent == 100
 
 
 def test_cookie_filter_proxy_and_output_path(tmp_path: Path) -> None:
