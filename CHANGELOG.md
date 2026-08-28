@@ -11,7 +11,11 @@
 
 ### 验证
 
+- 137 项隔离基线自动化测试、编译检查和 Git 差异检查均通过。
 - 使用真实小红书分享链接完成无水印 `originVideoKey` 下载，并核对 CDN 原文件与程序最终文件的 SHA256 完全一致。
+- 发布包：`VideoDownloadKing-v0.8.4-Windows-x64.zip`
+- ZIP 体积：`175.83 MiB`
+- SHA256：`B7BEEA53D4BE134F6BA19D06C1D10C08048F7127FF0E3E4F1B9FA0EF8D6D6D05`
 
 ## 0.8.3 - 2026-08-28
 
