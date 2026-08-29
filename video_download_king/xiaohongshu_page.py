@@ -8,13 +8,16 @@ from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequ
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFileDialog, QGridLayout, QGroupBox, QHBoxLayout,
     QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton,
-    QVBoxLayout, QWidget,
+    QSizePolicy, QVBoxLayout, QWidget,
 )
 
 from .config import AppSettings, SettingsStore
+from .cookie_status import inspect_cookie_status
 from .models import TaskProgress, TaskResult, XiaohongshuDownloadRequest, XiaohongshuMediaInfo
 from .naming_widgets import create_url_action_buttons, template_button_widget
+from .thumbnail_preview import configure_preview_proxy, thumbnail_request
 from .utils import render_filename_template
+from .xiaohongshu import select_video_asset
 from .xiaohongshu_workers import XiaohongshuAnalyzeWorker, XiaohongshuDownloadWorker
 
 
@@ -45,13 +48,14 @@ class XiaohongshuPage(QWidget):
 
         option_row = QHBoxLayout()
         self.video_preference = QComboBox()
+        self.video_preference.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         for label, value in (("最高分辨率", "resolution"), ("最高码率", "bitrate"), ("最小体积", "size")):
             self.video_preference.addItem(label, value)
         self.image_format = QComboBox()
         for label, value in (("原格式", "auto"), ("JPEG", "jpeg"), ("PNG", "png"), ("WEBP", "webp")):
             self.image_format.addItem(label, value)
         self.image_format.currentIndexChanged.connect(self._image_format_changed)
-        option_row.addWidget(QLabel("视频偏好")); option_row.addWidget(self.video_preference); option_row.addWidget(QLabel("图片格式")); option_row.addWidget(self.image_format); option_row.addStretch(); root.addLayout(option_row)
+        option_row.addWidget(QLabel("下载版本")); option_row.addWidget(self.video_preference, 1); option_row.addWidget(QLabel("图片格式")); option_row.addWidget(self.image_format); root.addLayout(option_row)
 
         path_row = QGridLayout(); path_row.setHorizontalSpacing(6)
         self.path_edit = QLineEdit(); browse = QPushButton("选择..."); browse.clicked.connect(self._browse)
@@ -60,9 +64,9 @@ class XiaohongshuPage(QWidget):
 
         info = QGroupBox("笔记信息"); info_layout = QHBoxLayout(info)
         self.thumbnail = QLabel("等待分析"); self.thumbnail.setFixedSize(164, 164); self.thumbnail.setAlignment(Qt.AlignCenter); self.thumbnail.setStyleSheet("background:#20242b;border-radius:6px;color:#9aa4b2")
-        details = QVBoxLayout(); self.title_label = QLabel("尚未分析笔记"); self.title_label.setWordWrap(True); self.meta_label = QLabel(); self.meta_label.setWordWrap(True)
+        details = QVBoxLayout(); self.title_label = QLabel("尚未分析笔记"); self.title_label.setWordWrap(True); self.meta_label = QLabel(); self.meta_label.setWordWrap(True); self.cookie_status_label = QLabel("Cookie：等待分析"); self.cookie_status_label.setWordWrap(True)
         note = QLabel("自研内核直接解析小红书笔记网页；不调用 yt-dlp，也不执行转码。"); note.setWordWrap(True); note.setStyleSheet("color:#687386")
-        details.addWidget(self.title_label); details.addWidget(self.meta_label); details.addWidget(note); details.addStretch(); info_layout.addWidget(self.thumbnail); info_layout.addLayout(details, 1); root.addWidget(info)
+        details.addWidget(self.title_label); details.addWidget(self.meta_label); details.addWidget(self.cookie_status_label); details.addWidget(note); details.addStretch(); info_layout.addWidget(self.thumbnail); info_layout.addLayout(details, 1); root.addWidget(info)
 
         options = QGroupBox("下载选项（自研引擎，无转码）"); grid = QGridLayout(options); grid.setHorizontalSpacing(6); grid.setVerticalSpacing(4)
         self.filename_template = QLineEdit("{title} [{id}]"); self.filename_template.textChanged.connect(self._preview)
@@ -88,6 +92,59 @@ class XiaohongshuPage(QWidget):
         self.video_preference.setCurrentIndex(max(0, self.video_preference.findData(self.settings.xiaohongshu_video_preference)))
         self.image_format.setCurrentIndex(max(0, self.image_format.findData(self.settings.xiaohongshu_image_format)))
 
+    def _reset_video_versions(self) -> None:
+        self.video_preference.clear()
+        for label, value in (("自动：最高分辨率", "resolution"), ("自动：最高码率", "bitrate"), ("自动：最小体积", "size")):
+            self.video_preference.addItem(label, value)
+        index = self.video_preference.findData(self.settings.xiaohongshu_video_preference)
+        self.video_preference.setCurrentIndex(index if index >= 0 else 0)
+        self.video_preference.setEnabled(True)
+
+    def _refresh_video_versions(self, media: XiaohongshuMediaInfo) -> None:
+        if media.media_type != "video":
+            self.video_preference.clear()
+            self.video_preference.addItem("图文笔记（无视频版本）", None)
+            self.video_preference.setEnabled(False)
+            return
+        preference = self.settings.xiaohongshu_video_preference
+        compatible = [
+            (index, asset)
+            for index, asset in enumerate(media.video_assets)
+            if not asset.codec.upper().startswith("EF") or asset.codec.upper() == "EF4"
+        ]
+        compatible.sort(
+            key=lambda pair: (
+                pair[1].codec != "original",
+                -((pair[1].width or 0) * (pair[1].height or 0)),
+                -(pair[1].bitrate or 0),
+                -(pair[1].size or 0),
+            )
+        )
+        self.video_preference.clear()
+        for display_index, (asset_index, asset) in enumerate(compatible, start=1):
+            details = []
+            if asset.width and asset.height:
+                details.append(f"{asset.width}×{asset.height}")
+            if asset.bitrate:
+                divisor = 1_000_000 if asset.bitrate >= 100_000 else 1_000
+                details.append(f"{asset.bitrate / divisor:.2f} Mbps")
+            codec = {"original": "原始视频", "h264": "H.264", "h265": "H.265", "hevc": "H.265", "ef4": "H.264"}.get(asset.codec.lower(), asset.codec or "未知编码")
+            details.append(codec)
+            if asset.size:
+                details.append(f"{asset.size / 1024 / 1024:.1f} MB")
+            label = f"版本 {display_index}：" + " · ".join(details)
+            self.video_preference.addItem(label, f"asset:{asset_index}")
+            self.video_preference.setItemData(self.video_preference.count() - 1, label, Qt.ToolTipRole)
+        self.video_preference.setEnabled(bool(compatible))
+        if compatible:
+            try:
+                preferred = select_video_asset(media.video_assets, preference)
+                preferred_index = next(index for index, asset in compatible if asset == preferred)
+            except (ValueError, StopIteration):
+                preferred_index = compatible[0][0]
+            selected = self.video_preference.findData(f"asset:{preferred_index}")
+            self.video_preference.setCurrentIndex(selected if selected >= 0 else 0)
+
     def _values(self) -> dict[str, str]:
         return {"title": self.media.title if self.media else "小红书笔记", "id": self.media.note_id if self.media else "ID", "author": self.media.author if self.media else "作者", "channel": self.media.author if self.media else "作者", "platform": "小红书", "upload_date": self.media.upload_date if self.media else "", "type": "视频" if not self.media or self.media.media_type == "video" else "图文"}
 
@@ -102,7 +159,7 @@ class XiaohongshuPage(QWidget):
         if self.thread: return
         try: request = self._request()
         except ValueError as exc: QMessageBox.warning(self, "无法分析", str(exc)); return
-        self.media = None; self._analysis_running = True; self._set_busy(True, "正在分析小红书笔记..."); self.total_progress.setRange(0, 0); self.stage_progress.setRange(0, 0)
+        self.media = None; self._reset_video_versions(); self._analysis_running = True; self._set_busy(True, "正在分析小红书笔记..."); self.total_progress.setRange(0, 0); self.stage_progress.setRange(0, 0)
         if not self.settings.xiaohongshu_cookie_file and self.settings.cookie_file: self.log.appendPlainText("小红书专用 Cookie 未设置，正在使用 YouTube / Instagram / TikTok / X 通用 cookies.txt")
         worker = XiaohongshuAnalyzeWorker(request); self._start(worker, worker.run); worker.completed.connect(self._analysis_complete); worker.failed.connect(self._failed)
 
@@ -118,12 +175,15 @@ class XiaohongshuPage(QWidget):
 
     def _analysis_complete(self, media: XiaohongshuMediaInfo) -> None:
         self.media = media; self.title_label.setText(media.title)
+        self._refresh_video_versions(media)
         if media.media_type == "video": detail = f"视频资源：{len(media.video_assets)} 个"
         else: detail = f"静态图片：{len(media.image_assets)} 张    实况片段：{len(media.live_assets)} 个"
         self.meta_label.setText(f"类型：{'视频' if media.media_type == 'video' else '图文'}    作者：{media.author or '未知'}    ID：{media.note_id}\n{detail}")
+        cookie_status = inspect_cookie_status("Xiaohongshu", self.settings.xiaohongshu_cookie_file or self.settings.cookie_file)
+        self.cookie_status_label.setText(f"Cookie：{cookie_status.text}"); self.cookie_status_label.setStyleSheet(f"color:{ {'valid':'#15803d','invalid':'#dc2626','warning':'#b45309'}.get(cookie_status.state, '#687386') }")
         self.cover_check.setEnabled(media.media_type == "video"); self._reset_progress(); self._set_busy(False, "分析完成"); self._preview()
         if media.thumbnail:
-            request = QNetworkRequest(QUrl(media.thumbnail)); request.setRawHeader(b"Referer", b"https://www.xiaohongshu.com/"); reply = self.network.get(request); reply.finished.connect(lambda: self._thumbnail_ready(reply))
+            configure_preview_proxy(self.network, self.settings.proxy); reply = self.network.get(thumbnail_request(media.thumbnail, "Xiaohongshu")); reply.finished.connect(lambda: self._thumbnail_ready(reply))
 
     def _thumbnail_ready(self, reply: QNetworkReply) -> None:
         data: QByteArray = reply.readAll(); pixmap = QPixmap()
@@ -131,7 +191,7 @@ class XiaohongshuPage(QWidget):
         reply.deleteLater()
 
     def _failed(self, category: str, message: str) -> None:
-        self.media = None; self._reset_progress(); self._set_busy(False, "分析已取消" if category == "已取消" else message); self.log.appendPlainText(f"[{category}] {message}")
+        self.media = None; self._reset_video_versions(); self._reset_progress(); self._set_busy(False, "分析已取消" if category == "已取消" else message); self.log.appendPlainText(f"[{category}] {message}")
         if category != "已取消": QMessageBox.critical(self, f"小红书分析失败：{category}", message)
 
     def _complete(self, result: TaskResult) -> None:
@@ -158,11 +218,13 @@ class XiaohongshuPage(QWidget):
         if self.media and self.media.media_type == "gallery": self.media = None; self.download_button.setEnabled(False); self.progress_label.setText("图片格式已更改，请重新分析")
 
     def _save_settings(self) -> None:
-        self.settings.save_path = self.path_edit.text().strip(); self.settings.classify_by_platform = self.classify_check.isChecked(); self.settings.xiaohongshu_classify_by_author = self.classify_author_check.isChecked(); self.settings.xiaohongshu_video_preference = self.video_preference.currentData(); self.settings.xiaohongshu_image_format = self.image_format.currentData(); self.settings.filename_template = self.filename_template.text().strip() or "{title} [{id}]"; self.settings.download_thumbnail = self.cover_check.isChecked(); self.store.save(self.settings)
+        self.settings.save_path = self.path_edit.text().strip(); self.settings.classify_by_platform = self.classify_check.isChecked(); self.settings.xiaohongshu_classify_by_author = self.classify_author_check.isChecked()
+        if self.video_preference.currentData() in {"resolution", "bitrate", "size"}: self.settings.xiaohongshu_video_preference = self.video_preference.currentData()
+        self.settings.xiaohongshu_image_format = self.image_format.currentData(); self.settings.filename_template = self.filename_template.text().strip() or "{title} [{id}]"; self.settings.download_thumbnail = self.cover_check.isChecked(); self.store.save(self.settings)
 
     def _browse(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "选择保存目录", self.path_edit.text())
-        if path: self.path_edit.setText(path)
+        if path: self.path_edit.setText(path); self.path_edit.editingFinished.emit()
 
     def _open_output(self) -> None:
         path = self._last_output_dir

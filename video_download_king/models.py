@@ -127,6 +127,7 @@ class MediaInfo:
     platform: str = "YouTube"
     duration: float | None = None
     thumbnail: str = ""
+    thumbnails: list[str] = field(default_factory=list)
     is_live: bool = False
     subtitles: dict[str, Any] = field(default_factory=dict)
     automatic_captions: dict[str, Any] = field(default_factory=dict)
@@ -141,6 +142,11 @@ class MediaInfo:
                 name = next((item.get("name", "") for item in entries if item.get("name")), "") or language
                 options.append(SubtitleInfo(language, name, kind, formats))
         return sorted(options, key=lambda item: (item.kind != "manual", item.language.lower()))
+
+    @property
+    def thumbnail_candidates(self) -> list[str]:
+        candidates = [self.thumbnail, *reversed(self.thumbnails)]
+        return list(dict.fromkeys(url for url in candidates if url))
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> "MediaInfo":
@@ -168,6 +174,11 @@ class MediaInfo:
             platform=platform,
             duration=data.get("duration"),
             thumbnail=data.get("thumbnail") or "",
+            thumbnails=[
+                item.get("url", "")
+                for item in data.get("thumbnails") or []
+                if isinstance(item, dict) and item.get("url")
+            ],
             is_live=bool(data.get("is_live")),
             subtitles=data.get("subtitles") or {},
             automatic_captions=data.get("automatic_captions") or {},
@@ -280,7 +291,7 @@ class DouyinDownloadRequest:
     url: str
     output_dir: Path
     download_engine: Literal["native", "yt_dlp"] = "native"
-    quality: Literal["highest", "1080p", "720p", "540p", "lowest"] = "highest"
+    quality: str = "highest"
     filename_template: str = "{title} [{id}]"
     classify_by_platform: bool = True
     classify_by_author: bool = False
@@ -328,7 +339,7 @@ class XiaohongshuMediaInfo:
 class XiaohongshuDownloadRequest:
     url: str
     output_dir: Path
-    video_preference: Literal["resolution", "bitrate", "size"] = "resolution"
+    video_preference: str = "resolution"
     image_format: Literal["auto", "jpeg", "png", "webp"] = "auto"
     filename_template: str = "{title} [{id}]"
     classify_by_platform: bool = True

@@ -107,6 +107,9 @@ def test_video_selection_and_image_url() -> None:
     assert select_video_asset(assets, "resolution").urls == ("high",)
     assert select_video_asset(assets, "bitrate").urls == ("high",)
     assert select_video_asset(assets, "size").urls == ("low",)
+    assert select_video_asset(assets, "asset:0").urls == ("low",)
+    with pytest.raises(ValueError, match="重新分析"):
+        select_video_asset(assets, "asset:99")
     compatible = XiaohongshuAsset(
         "video", ("playable",), width=720, height=1280, bitrate=1200, codec="EF4"
     )

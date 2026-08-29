@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QTabWidget,
 )
@@ -30,7 +31,13 @@ from video_download_king.main_window import MainWindow
 from video_download_king.models import SubtitleInfo, TaskResult
 from video_download_king.settings_dialog import SettingsDialog
 from video_download_king.subtitle_dialog import SubtitleDialog
-from video_download_king.models import DouyinAsset, DouyinMediaInfo, TranscodeConfig
+from video_download_king.models import (
+    DouyinAsset,
+    DouyinMediaInfo,
+    TranscodeConfig,
+    XiaohongshuAsset,
+    XiaohongshuMediaInfo,
+)
 from video_download_king.transcode_panel import TranscodePanel
 
 
@@ -341,9 +348,41 @@ def test_open_folder_tracks_latest_successful_output_directory(monkeypatch, tmp_
 
     output.unlink()
     actual_dir.rmdir()
-    for configured_root, (page, _callback) in zip(configured_roots, pages_and_callbacks):
+    shared_root = configured_roots[-1]
+    for page, _callback in pages_and_callbacks:
         page._open_output()
-        assert opened[-1] == configured_root.resolve()
+        assert opened[-1] == shared_root.resolve()
+    window.close()
+
+
+def test_all_download_pages_share_and_persist_one_save_path(monkeypatch, tmp_path: Path) -> None:
+    app()
+    store = SettingsStore(tmp_path / "settings.json")
+    monkeypatch.setattr("video_download_king.main_window.SettingsStore", lambda: store)
+    monkeypatch.setattr(
+        "video_download_king.main_window.FFmpegService.detect_encoders",
+        lambda self, on_log=None: {"nvidia": False, "intel": False, "amd": False},
+    )
+    window = MainWindow()
+    path_edits = [
+        window.path_edit,
+        window.douyin_page.path_edit,
+        window.bilibili_page.path_edit,
+        window.xiaohongshu_page.path_edit,
+    ]
+
+    first_path = str(tmp_path / "统一下载目录")
+    window.douyin_page.path_edit.setText(first_path)
+    assert all(path_edit.text() == first_path for path_edit in path_edits)
+    assert window.settings.save_path == first_path
+    window.douyin_page.path_edit.editingFinished.emit()
+    assert store.load().save_path == first_path
+
+    second_path = str(tmp_path / "B站修改后的目录")
+    window.bilibili_page.path_edit.setText(second_path)
+    assert all(path_edit.text() == second_path for path_edit in path_edits)
+    window.bilibili_page.path_edit.editingFinished.emit()
+    assert store.load().save_path == second_path
     window.close()
 
 
@@ -431,6 +470,63 @@ def test_main_window_has_douyin_page_and_gallery_forces_native(monkeypatch) -> N
     assert page.engine_combo.currentData() == "native"
     assert not page.engine_combo.isEnabled()
     window.close()
+
+
+def test_douyin_analysis_lists_actual_native_video_versions(tmp_path: Path) -> None:
+    app()
+    page = DouyinPage(AppSettings(save_path=str(tmp_path)), SettingsStore(tmp_path / "settings.json"))
+    page.url_edit.setText("https://www.douyin.com/video/7604129988555574538")
+    page._analysis_complete(
+        DouyinMediaInfo(
+            "https://www.douyin.com/video/7604129988555574538",
+            "7604129988555574538",
+            "测试视频",
+            video_assets=[
+                DouyinAsset("video", ("low",), width=960, height=540, bitrate=500_000, codec="normal_540_0"),
+                DouyinAsset("video", ("high",), width=1920, height=1080, bitrate=2_000_000, codec="normal_1080_0"),
+            ],
+        )
+    )
+    assert page.quality_combo.count() == 2
+    assert page.quality_combo.currentData() == "asset:1"
+    assert "1080p" in page.quality_combo.currentText()
+    assert "2.00 Mbps" in page.quality_combo.currentText()
+    assert page.quality_combo.sizePolicy().horizontalPolicy() == QSizePolicy.Expanding
+    assert page._request().quality == "asset:1"
+
+    page.engine_combo.setCurrentIndex(page.engine_combo.findData("yt_dlp"))
+    assert page.quality_combo.findData("highest") >= 0
+    page.close()
+
+
+def test_xiaohongshu_analysis_lists_actual_video_versions(tmp_path: Path) -> None:
+    app()
+    page = XiaohongshuPage(
+        AppSettings(save_path=str(tmp_path)), SettingsStore(tmp_path / "settings.json")
+    )
+    page.url_edit.setText("https://www.xiaohongshu.com/explore/65abcdef0000000012345678")
+    page._analysis_complete(
+        XiaohongshuMediaInfo(
+            "https://www.xiaohongshu.com/explore/65abcdef0000000012345678",
+            "65abcdef0000000012345678",
+            "测试视频",
+            video_assets=[
+                XiaohongshuAsset(
+                    "video", ("low",), width=720, height=480, bitrate=900, codec="h264"
+                ),
+                XiaohongshuAsset(
+                    "video", ("high",), width=1920, height=1080, bitrate=2000, codec="h264"
+                ),
+            ],
+        )
+    )
+    assert page.video_preference.count() == 2
+    assert page.video_preference.currentData() == "asset:1"
+    assert "1920×1080" in page.video_preference.currentText()
+    assert "2.00 Mbps" in page.video_preference.currentText()
+    page.video_preference.setCurrentIndex(page.video_preference.findData("asset:0"))
+    assert page._request().video_preference == "asset:0"
+    page.close()
 
 
 def test_transcode_panel_exists_only_on_single_download_page(monkeypatch) -> None:

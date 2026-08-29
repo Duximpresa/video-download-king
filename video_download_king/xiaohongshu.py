@@ -259,6 +259,15 @@ def select_video_asset(
 ) -> XiaohongshuAsset:
     if not assets:
         raise ValueError("该笔记没有可下载的视频资源")
+    preference = preference or ""
+    if preference.startswith("asset:"):
+        try:
+            asset = assets[int(preference.partition(":")[2])]
+        except (ValueError, IndexError):
+            raise ValueError("所选小红书视频版本已不可用，请重新分析笔记") from None
+        if asset.codec.upper().startswith("EF") and asset.codec.upper() != "EF4":
+            raise ValueError(f"所选视频版本的编码不受支持：{asset.codec}")
+        return asset
     if any(asset.codec == "original" for asset in assets):
         return next(asset for asset in assets if asset.codec == "original")
     compatible = [

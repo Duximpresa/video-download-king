@@ -72,6 +72,9 @@ def test_quality_selection() -> None:
     assert select_video_asset(assets, "highest").urls == ("high",)
     assert select_video_asset(assets, "lowest").urls == ("low",)
     assert select_video_asset(assets, "720p").urls == ("mid",)
+    assert select_video_asset(assets, "asset:1").urls == ("silent",)
+    with pytest.raises(ValueError, match="重新分析"):
+        select_video_asset(assets, "asset:99")
 
 
 def test_detail_parses_video_and_prefers_clean_urls() -> None:

@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from video_download_king.config import AppSettings, SettingsStore
+from video_download_king.cookie_status import inspect_cookie_status
 from video_download_king.errors import categorize_error, user_facing_error
 from video_download_king.formats import format_selector
 from video_download_king.models import (
@@ -39,6 +40,48 @@ def request(**kwargs) -> DownloadRequest:
     defaults = {"url": "https://youtu.be/abc", "output_dir": Path("downloads")}
     defaults.update(kwargs)
     return DownloadRequest(**defaults)
+
+
+def test_cookie_status_distinguishes_login_expired_and_guest_cookies(tmp_path: Path) -> None:
+    cookie_file = tmp_path / "cookies.txt"
+    cookie_file.write_text(
+        "# Netscape HTTP Cookie File\n"
+        ".instagram.com\tTRUE\t/\tTRUE\t2147483647\tsessionid\tactive\n",
+        encoding="utf-8",
+    )
+    assert inspect_cookie_status("Instagram", str(cookie_file)).state == "valid"
+
+    cookie_file.write_text(
+        ".tiktok.com\tTRUE\t/\tTRUE\t1\tsessionid\texpired\n",
+        encoding="utf-8",
+    )
+    assert inspect_cookie_status("TikTok", str(cookie_file)).state == "invalid"
+
+    cookie_file.write_text(
+        ".x.com\tTRUE\t/\tTRUE\t2147483647\tguest_id\tguest\n",
+        encoding="utf-8",
+    )
+    assert inspect_cookie_status("X", str(cookie_file)).state == "warning"
+    assert inspect_cookie_status("YouTube", cookie_browser="chrome").state == "browser"
+    assert inspect_cookie_status("YouTube").state == "missing"
+
+
+def test_media_info_keeps_thumbnail_fallback_candidates() -> None:
+    media = MediaInfo.from_json(
+        {
+            "id": "1",
+            "extractor_key": "TikTok",
+            "thumbnail": "https://cdn.example/preferred.jpg",
+            "thumbnails": [
+                {"url": "https://cdn.example/small.jpg"},
+                {"url": "https://cdn.example/preferred.jpg"},
+            ],
+        }
+    )
+    assert media.thumbnail_candidates == [
+        "https://cdn.example/preferred.jpg",
+        "https://cdn.example/small.jpg",
+    ]
 
 
 class JsonRunner:

@@ -114,7 +114,14 @@ def test_bilibili_page_part_defaults_and_no_transcode(tmp_path: Path) -> None:
     part1 = BilibiliPartInfo(1, 1, "第一集", selected=False)
     part2 = BilibiliPartInfo(
         2, 2, "第二集", selected=True,
-        video_streams=[BilibiliStreamInfo("video", 80, "1080P", "avc")],
+        video_streams=[
+            BilibiliStreamInfo(
+                "video", 80, "1080P", "avc", 1920, 1080, "60", 4_000_000
+            ),
+            BilibiliStreamInfo(
+                "video", 80, "1080P", "hevc", 1920, 1080, "60", 3_000_000
+            ),
+        ],
         audio_streams=[BilibiliStreamInfo("audio", 30280, "192K")],
     )
     page._analysis_complete(BilibiliMediaInfo("https://www.bilibili.com/video/BV1Ab411c7mD", "BV1Ab411c7mD", 123, "测试", "UP", parts=[part1, part2]))
@@ -122,6 +129,13 @@ def test_bilibili_page_part_defaults_and_no_transcode(tmp_path: Path) -> None:
     assert page.parts_table.item(1, 0).checkState() == Qt.Checked
     request = page._request()
     assert request.selected_pages == [2]
+    assert page.video_version.count() == 2
+    assert "1920×1080" in page.video_version.currentText()
+    assert "AVC / H.264" in page.video_version.currentText()
+    assert request.video_quality == 80
+    assert request.video_codec == "avc"
+    page.video_version.setCurrentIndex(page.video_version.findData("80:hevc"))
+    assert page._request().video_codec == "hevc"
     assert request.cookie_file == "bili.txt"
     assert not hasattr(page, "transcode_panel")
     assert len(page.findChildren(QProgressBar)) == 2

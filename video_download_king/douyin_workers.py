@@ -37,13 +37,14 @@ def _from_ytdlp(media: MediaInfo) -> DouyinMediaInfo:
 
 
 def _yt_request(request: DouyinDownloadRequest, media: DouyinMediaInfo) -> DownloadRequest:
+    selected_quality = request.quality if not request.quality.startswith("asset:") else "highest"
     quality = {
         "highest": "best",
         "lowest": "worst",
         "1080p": "1080p",
         "720p": "720p",
         "540p": "custom",
-    }[request.quality]
+    }[selected_quality]
     return DownloadRequest(
         url=media.webpage_url,
         output_dir=request.output_dir,
@@ -56,7 +57,7 @@ def _yt_request(request: DouyinDownloadRequest, media: DouyinMediaInfo) -> Downl
         classify_by_platform=False,
         mode="video_audio",
         quality_preset=quality,
-        custom_height=540 if request.quality == "540p" else None,
+        custom_height=540 if selected_quality == "540p" else None,
         proxy=request.proxy,
         cookie_file=request.cookie_file,
         timeout=request.timeout,

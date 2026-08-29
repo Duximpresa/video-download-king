@@ -140,6 +140,11 @@ def _gallery_items(data: dict[str, Any]) -> list[dict[str, Any]]:
 def select_video_asset(assets: list[DouyinAsset], quality: str) -> DouyinAsset:
     if not assets:
         raise ValueError("该作品没有可下载的视频流")
+    if quality.startswith("asset:"):
+        try:
+            return assets[int(quality.partition(":")[2])]
+        except (ValueError, IndexError) as exc:
+            raise ValueError("所选抖音画质已不可用，请重新分析作品") from exc
 
     def resolution(item: DouyinAsset) -> int:
         dimensions = [value for value in (item.width, item.height) if value and value > 0]

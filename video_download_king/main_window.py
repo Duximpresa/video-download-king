@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
 )
 
 from .config import AppSettings, SettingsStore
+from .cookie_status import inspect_cookie_status
 from .douyin_page import DouyinPage
 from .xiaohongshu_page import XiaohongshuPage
 from .bilibili_page import BilibiliPage
@@ -56,6 +57,7 @@ from .settings_dialog import SettingsDialog
 from .subtitle_dialog import SubtitleDialog
 from .transcode import FFmpegService
 from .transcode_panel import TranscodePanel
+from .thumbnail_preview import configure_preview_proxy, thumbnail_request
 from .utils import human_size, render_filename_template
 from .workers import AnalyzeWorker, DownloadWorker
 from . import __version__
@@ -76,6 +78,8 @@ class MainWindow(QMainWindow):
         self._analysis_running = False
         self._last_output_dir: Path | None = None
         self.network = QNetworkAccessManager(self)
+        self._thumbnail_candidates: list[str] = []
+        self._thumbnail_generation = 0
 
         self.hardware_availability = {"nvidia": False, "intel": False, "amd": False}
         self.setWindowTitle(f"Video Download King {__version__}")
@@ -84,6 +88,7 @@ class MainWindow(QMainWindow):
         self._build_menu()
         self._build_ui()
         self._apply_settings()
+        self._bind_shared_save_path()
         self._check_runtime()
         self._detect_hardware()
 
@@ -193,9 +198,12 @@ class MainWindow(QMainWindow):
         self.title_label = QLabel("尚未分析链接")
         self.title_label.setWordWrap(True)
         self.meta_label = QLabel("")
+        self.cookie_status_label = QLabel("Cookie：等待分析")
+        self.cookie_status_label.setWordWrap(True)
         details = QVBoxLayout()
         details.addWidget(self.title_label)
         details.addWidget(self.meta_label)
+        details.addWidget(self.cookie_status_label)
         details.addStretch()
         info_layout.addWidget(self.thumbnail)
         info_layout.addLayout(details, 1)
@@ -423,6 +431,36 @@ class MainWindow(QMainWindow):
         self.transcode_panel.load_config(self.settings.transcode)
         self._update_filename_preview()
 
+    def _bind_shared_save_path(self) -> None:
+        self._syncing_save_path = False
+        self._save_path_edits = (
+            self.path_edit,
+            self.douyin_page.path_edit,
+            self.bilibili_page.path_edit,
+            self.xiaohongshu_page.path_edit,
+        )
+        for path_edit in self._save_path_edits:
+            path_edit.textChanged.connect(
+                lambda text, source=path_edit: self._shared_save_path_changed(source, text)
+            )
+            path_edit.editingFinished.connect(self._persist_shared_save_path)
+
+    def _shared_save_path_changed(self, source: QLineEdit, text: str) -> None:
+        if self._syncing_save_path:
+            return
+        self._syncing_save_path = True
+        try:
+            for path_edit in self._save_path_edits:
+                if path_edit is not source and path_edit.text() != text:
+                    path_edit.setText(text)
+            self.settings.save_path = text.strip()
+        finally:
+            self._syncing_save_path = False
+
+    def _persist_shared_save_path(self) -> None:
+        self.settings.save_path = self.path_edit.text().strip()
+        self.store.save(self.settings)
+
     def _check_runtime(self) -> None:
         missing = [path.name for path in (yt_dlp_path(), ffmpeg_path(), ffprobe_path(), deno_path()) if not path.exists()]
         if missing:
@@ -455,6 +493,7 @@ class MainWindow(QMainWindow):
         path = QFileDialog.getExistingDirectory(self, "选择保存目录", self.path_edit.text())
         if path:
             self.path_edit.setText(path)
+            self.path_edit.editingFinished.emit()
 
     def _select_subtitles(self) -> None:
         if not self.media:
@@ -613,6 +652,10 @@ class MainWindow(QMainWindow):
             return
         self._analysis_running = True
         self.media = None
+        self.thumbnail.clear()
+        self.thumbnail.setText("正在分析")
+        self._thumbnail_candidates = []
+        self._thumbnail_generation += 1
         self.subtitle_selections = []
         self.subtitle_button.setEnabled(False)
         self._update_subtitle_summary()
@@ -690,6 +733,16 @@ class MainWindow(QMainWindow):
             f"平台：{media.platform or '未知'}    频道：{media.channel or '未知'}    "
             f"时长：{duration // 60:02d}:{duration % 60:02d}    ID：{media.media_id}"
         )
+        cookie_status = inspect_cookie_status(
+            media.platform,
+            self.settings.cookie_file,
+            self.settings.cookie_browser,
+        )
+        self.cookie_status_label.setText(f"Cookie：{cookie_status.text}")
+        color = {"valid": "#15803d", "invalid": "#dc2626", "warning": "#b45309"}.get(
+            cookie_status.state, "#687386"
+        )
+        self.cookie_status_label.setStyleSheet(f"color:{color}")
         self._populate_table(self.video_table, video_formats(media.formats))
         self._populate_table(self.audio_table, audio_formats(media.formats), allow_none=True)
         videos = [item for item in media.formats if item.has_video]
@@ -708,15 +761,33 @@ class MainWindow(QMainWindow):
         self.stage_progress.setRange(0, 100)
         self.stage_progress.setValue(0)
         self._update_filename_preview()
-        if media.thumbnail:
-            reply = self.network.get(QNetworkRequest(QUrl(media.thumbnail)))
-            reply.finished.connect(lambda: self._thumbnail_ready(reply))
+        self._thumbnail_candidates = media.thumbnail_candidates
+        configure_preview_proxy(self.network, self.settings.proxy)
+        self._load_next_thumbnail(self._thumbnail_generation)
 
-    def _thumbnail_ready(self, reply: QNetworkReply) -> None:
+    def _load_next_thumbnail(self, generation: int) -> None:
+        if generation != self._thumbnail_generation:
+            return
+        if not self._thumbnail_candidates:
+            if not self.thumbnail.pixmap() or self.thumbnail.pixmap().isNull():
+                self.thumbnail.setText("暂无可用封面")
+            return
+        url = self._thumbnail_candidates.pop(0)
+        reply = self.network.get(thumbnail_request(url, self.media.platform if self.media else ""))
+        reply.finished.connect(lambda: self._thumbnail_ready(reply, generation))
+
+    def _thumbnail_ready(self, reply: QNetworkReply, generation: int | None = None) -> None:
+        generation = self._thumbnail_generation if generation is None else generation
+        if generation != self._thumbnail_generation:
+            reply.deleteLater()
+            return
         data: QByteArray = reply.readAll()
         pixmap = QPixmap()
-        if pixmap.loadFromData(data):
+        if reply.error() == QNetworkReply.NoError and pixmap.loadFromData(data):
             self.thumbnail.setPixmap(pixmap.scaled(self.thumbnail.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            self._thumbnail_candidates = []
+        else:
+            self._load_next_thumbnail(generation)
         reply.deleteLater()
 
     @staticmethod

@@ -19,15 +19,18 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
 from .config import AppSettings, SettingsStore
+from .cookie_status import inspect_cookie_status
 from .douyin_workers import DouyinAnalyzeWorker, DouyinDownloadWorker
 from .models import DouyinDownloadRequest, DouyinMediaInfo, TaskProgress, TaskResult
 from .utils import render_filename_template
 from .naming_widgets import create_url_action_buttons, template_button_widget
+from .thumbnail_preview import configure_preview_proxy, thumbnail_request
 
 
 class DouyinPage(QWidget):
@@ -43,6 +46,8 @@ class DouyinPage(QWidget):
         self._analysis_running = False
         self._last_output_dir: Path | None = None
         self.network = QNetworkAccessManager(self)
+        self._thumbnail_candidates: list[str] = []
+        self._thumbnail_generation = 0
         self._build_ui()
         self._apply_settings()
 
@@ -77,6 +82,7 @@ class DouyinPage(QWidget):
         self.engine_combo.addItem("yt-dlp", "yt_dlp")
         self.engine_combo.currentIndexChanged.connect(self._engine_changed)
         self.quality_combo = QComboBox()
+        self.quality_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         for label, value in (
             ("最高画质", "highest"),
             ("1080p", "1080p"),
@@ -88,8 +94,7 @@ class DouyinPage(QWidget):
         option_row.addWidget(QLabel("下载引擎"))
         option_row.addWidget(self.engine_combo)
         option_row.addWidget(QLabel("画质"))
-        option_row.addWidget(self.quality_combo)
-        option_row.addStretch()
+        option_row.addWidget(self.quality_combo, 1)
         root.addLayout(option_row)
 
         path_row = QGridLayout()
@@ -118,11 +123,14 @@ class DouyinPage(QWidget):
         self.title_label.setWordWrap(True)
         self.meta_label = QLabel("")
         self.meta_label.setWordWrap(True)
+        self.cookie_status_label = QLabel("Cookie：等待分析")
+        self.cookie_status_label.setWordWrap(True)
         self.engine_note = QLabel("自研引擎直接解析抖音接口；yt-dlp 仅用于视频，不支持图集。")
         self.engine_note.setWordWrap(True)
         self.engine_note.setStyleSheet("color:#687386")
         details.addWidget(self.title_label)
         details.addWidget(self.meta_label)
+        details.addWidget(self.cookie_status_label)
         details.addWidget(self.engine_note)
         details.addStretch()
         info_layout.addWidget(self.thumbnail)
@@ -233,6 +241,10 @@ class DouyinPage(QWidget):
             return
         self._analysis_running = True
         self.media = None
+        self.thumbnail.clear()
+        self.thumbnail.setText("正在分析")
+        self._thumbnail_candidates = []
+        self._thumbnail_generation += 1
         self.download_button.setEnabled(False)
         self._set_busy(True, "正在分析抖音作品...")
         self._set_analysis_progress()
@@ -292,26 +304,53 @@ class DouyinPage(QWidget):
             detail = f"视频：{len(media.video_assets) or '由 yt-dlp 提供'} 个可用格式"
             self.engine_combo.setEnabled(True)
             self.quality_combo.setEnabled(True)
+            self._refresh_quality_choices()
         duration = int(media.duration or 0)
         self.meta_label.setText(
             f"类型：{'图集' if media.media_type == 'gallery' else '视频'}    "
             f"作者：{media.author or '未知'}    时长：{duration // 60:02d}:{duration % 60:02d}    "
             f"ID：{media.media_id}\n{detail}"
         )
+        cookie_status = inspect_cookie_status(
+            "Douyin",
+            self.settings.douyin_cookie_file or self.settings.cookie_file,
+        )
+        self.cookie_status_label.setText(f"Cookie：{cookie_status.text}")
+        color = {"valid": "#15803d", "invalid": "#dc2626", "warning": "#b45309"}.get(
+            cookie_status.state, "#687386"
+        )
+        self.cookie_status_label.setStyleSheet(f"color:{color}")
         self.download_button.setEnabled(True)
         self.progress_label.setText("分析完成")
         self._update_preview()
-        if media.thumbnail:
-            reply = self.network.get(QNetworkRequest(QUrl(media.thumbnail)))
-            reply.finished.connect(lambda: self._thumbnail_ready(reply))
+        self._thumbnail_candidates = [media.thumbnail] if media.thumbnail else []
+        configure_preview_proxy(self.network, self.settings.proxy)
+        self._load_next_thumbnail(self._thumbnail_generation)
 
-    def _thumbnail_ready(self, reply: QNetworkReply) -> None:
+    def _load_next_thumbnail(self, generation: int) -> None:
+        if generation != self._thumbnail_generation:
+            return
+        if not self._thumbnail_candidates:
+            if not self.thumbnail.pixmap() or self.thumbnail.pixmap().isNull():
+                self.thumbnail.setText("暂无可用封面")
+            return
+        reply = self.network.get(thumbnail_request(self._thumbnail_candidates.pop(0), "Douyin"))
+        reply.finished.connect(lambda: self._thumbnail_ready(reply, generation))
+
+    def _thumbnail_ready(self, reply: QNetworkReply, generation: int | None = None) -> None:
+        generation = self._thumbnail_generation if generation is None else generation
+        if generation != self._thumbnail_generation:
+            reply.deleteLater()
+            return
         data: QByteArray = reply.readAll()
         pixmap = QPixmap()
-        if pixmap.loadFromData(data):
+        if reply.error() == QNetworkReply.NoError and pixmap.loadFromData(data):
             self.thumbnail.setPixmap(
                 pixmap.scaled(self.thumbnail.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
             )
+            self._thumbnail_candidates = []
+        else:
+            self._load_next_thumbnail(generation)
         reply.deleteLater()
 
     def _ask_engine_fallback(self, target: str, diagnostic: str) -> None:
@@ -378,6 +417,47 @@ class DouyinPage(QWidget):
             if self.engine_combo.currentData() == "native"
             else "yt-dlp 仅支持抖音视频；引擎失败时程序会询问是否切换。"
         )
+        self._refresh_quality_choices()
+
+    def _refresh_quality_choices(self) -> None:
+        current = self.quality_combo.currentData()
+        self.quality_combo.clear()
+        if (
+            self.engine_combo.currentData() == "native"
+            and self.media
+            and self.media.media_type == "video"
+            and self.media.video_assets
+        ):
+            ranked = sorted(
+                enumerate(self.media.video_assets),
+                key=lambda pair: (
+                    pair[1].watermarked,
+                    -(pair[1].bitrate or 0),
+                    -((pair[1].width or 0) * (pair[1].height or 0)),
+                ),
+            )
+            for display_index, (asset_index, asset) in enumerate(ranked, start=1):
+                dimensions = [value for value in (asset.width, asset.height) if value]
+                short_edge = min(dimensions) if dimensions else None
+                resolution = f"{short_edge}p" if short_edge else "未知分辨率"
+                bitrate = f"{asset.bitrate / 1_000_000:.2f} Mbps" if asset.bitrate else "未知码率"
+                codec = asset.codec or "未知编码"
+                watermark = " · 含水印" if asset.watermarked else " · 无水印"
+                self.quality_combo.addItem(
+                    f"版本 {display_index}：{resolution} · {bitrate} · {codec}{watermark}",
+                    f"asset:{asset_index}",
+                )
+            return
+        for label, value in (
+            ("最高画质", "highest"),
+            ("1080p", "1080p"),
+            ("720p", "720p"),
+            ("540p", "540p"),
+            ("最低画质", "lowest"),
+        ):
+            self.quality_combo.addItem(label, value)
+        index = self.quality_combo.findData(current)
+        self.quality_combo.setCurrentIndex(index if index >= 0 else 0)
 
     def _template_values(self, *, index: int | None = None, asset: str = "视频") -> dict[str, str]:
         media_type = "图集" if self.media and self.media.media_type == "gallery" else "视频"
@@ -412,6 +492,7 @@ class DouyinPage(QWidget):
         path = QFileDialog.getExistingDirectory(self, "选择保存目录", self.path_edit.text())
         if path:
             self.path_edit.setText(path)
+            self.path_edit.editingFinished.emit()
 
     def _open_output(self) -> None:
         path = self._last_output_dir
