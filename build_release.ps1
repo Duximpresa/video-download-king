@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "0.8.5"
+    [string]$Version = "0.8.6"
 )
 
 $ErrorActionPreference = "Stop"
@@ -23,6 +23,15 @@ foreach ($Item in $Required) {
         throw "Missing runtime file: $Item"
     }
 }
+
+$RuntimePackageFiles = @(
+    "runtime\yt-dlp\yt-dlp.exe",
+    "runtime\ffmpeg\LICENSE",
+    "runtime\ffmpeg\README.txt",
+    "runtime\ffmpeg\bin\ffmpeg.exe",
+    "runtime\ffmpeg\bin\ffprobe.exe",
+    "runtime\deno\deno.exe"
+)
 
 function Remove-PackageItem {
     param(
@@ -75,8 +84,20 @@ New-Item -ItemType Directory -Force $PackageDir | Out-Null
 
 Copy-Item "dist\VideoDownloadKing\*" $PackageDir -Recurse
 Optimize-QtPackage $PackageDir
-Copy-Item "runtime" $PackageDir -Recurse
+foreach ($Item in $RuntimePackageFiles) {
+    $Destination = Join-Path $PackageDir $Item
+    New-Item -ItemType Directory -Force (Split-Path -Parent $Destination) | Out-Null
+    Copy-Item -LiteralPath $Item -Destination $Destination
+}
 Copy-Item "README.md","THIRD_PARTY_NOTICES.md" $PackageDir
 New-Item -ItemType Directory -Force (Join-Path $PackageDir "config"),(Join-Path $PackageDir "downloads") | Out-Null
+$UnexpectedFiles = Get-ChildItem -LiteralPath $PackageDir -Recurse -File |
+    Where-Object {
+        $_.Name -match '\.(back|bak|tmp|log)$' -or
+        $_.Name -in @("icuuc.dll", "icudt78.dll")
+    }
+if ($UnexpectedFiles) {
+    throw "Unexpected backup or temporary file in release package: $($UnexpectedFiles.FullName -join ', ')"
+}
 Compress-Archive -Path "$PackageDir\*" -DestinationPath $Archive -CompressionLevel Optimal
 Write-Host "Release created: $Archive"

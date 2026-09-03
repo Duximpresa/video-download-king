@@ -64,6 +64,21 @@ def test_xiaohongshu_tabs_follow_bilibili(monkeypatch) -> None:
     assert "TikTok" in window.url_edit.placeholderText()
 
 
+def test_main_window_does_not_probe_hardware_before_it_is_shown(monkeypatch) -> None:
+    app()
+    calls: list[bool] = []
+    monkeypatch.setattr(
+        "video_download_king.main_window.FFmpegService.detect_encoders",
+        lambda self, on_log=None: calls.append(True) or {},
+    )
+
+    window = MainWindow()
+
+    assert calls == []
+    assert window.hardware_thread is None
+    window.close()
+
+
 def test_all_numeric_inputs_hide_step_buttons(monkeypatch) -> None:
     app()
     monkeypatch.setattr(

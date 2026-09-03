@@ -15,6 +15,10 @@ class ProcessCancelled(RuntimeError):
     pass
 
 
+class ProcessTimeout(RuntimeError):
+    pass
+
+
 class ProcessRunner:
     def __init__(self) -> None:
         self._process: subprocess.Popen[str] | None = None
@@ -28,6 +32,7 @@ class ProcessRunner:
         on_line: LogCallback | None = None,
         cwd: Path | None = None,
         capture: bool = False,
+        timeout: float | None = None,
     ) -> tuple[int, str]:
         command = [str(item) for item in args]
         flags = 0
@@ -51,17 +56,35 @@ class ProcessRunner:
                 creationflags=flags,
                 startupinfo=startupinfo,
             )
+        timed_out = threading.Event()
+
+        def stop_on_timeout() -> None:
+            with self._lock:
+                process = self._process
+            if process is not None and process.poll() is None:
+                timed_out.set()
+                process.kill()
+
+        timer = threading.Timer(timeout, stop_on_timeout) if timeout is not None else None
+        if timer:
+            timer.start()
         output: list[str] = []
-        assert self._process.stdout is not None
-        for raw_line in self._process.stdout:
-            line = raw_line.rstrip("\r\n")
-            if capture:
-                output.append(line)
-            if on_line:
-                on_line(line)
-        return_code = self._process.wait()
+        try:
+            assert self._process.stdout is not None
+            for raw_line in self._process.stdout:
+                line = raw_line.rstrip("\r\n")
+                if capture:
+                    output.append(line)
+                if on_line:
+                    on_line(line)
+            return_code = self._process.wait()
+        finally:
+            if timer:
+                timer.cancel()
         with self._lock:
             self._process = None
+        if timed_out.is_set():
+            raise ProcessTimeout(f"子进程运行超过 {timeout:g} 秒，已停止")
         if self.cancelled:
             raise ProcessCancelled("任务已取消")
         return return_code, "\n".join(output)

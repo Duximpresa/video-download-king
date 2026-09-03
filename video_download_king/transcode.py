@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .models import TaskProgress, TranscodeConfig
 from .paths import ffmpeg_path, ffprobe_path
-from .processes import ProcessRunner
+from .processes import ProcessRunner, ProcessTimeout
 from .transcode_options import (
     bitrate_for_target_size,
     clamp_audio_bitrate,
@@ -147,23 +147,36 @@ class FFmpegService:
                 "null",
                 "-",
             ]
-            code, _ = self.runner.run(args)
+            try:
+                code, _ = self.runner.run(args, timeout=8)
+            except ProcessTimeout:
+                code = -1
+                if on_log:
+                    on_log(f"{vendor.upper()} 硬件编码探测超时，已跳过 ({encoder})")
             availability[vendor] = code == 0
             if on_log:
                 on_log(f"{vendor.upper()} 硬件编码：{'可用' if code == 0 else '不可用'} ({encoder})")
 
-        _, hwaccels = self.runner.run(
-            [ffmpeg_path(), "-hide_banner", "-hwaccels"],
-            capture=True,
-        )
+        try:
+            _, hwaccels = self.runner.run(
+                [ffmpeg_path(), "-hide_banner", "-hwaccels"], capture=True, timeout=5
+            )
+        except ProcessTimeout:
+            hwaccels = ""
+            if on_log:
+                on_log("硬件解码能力探测超时，已跳过")
         methods = {line.strip() for line in hwaccels.splitlines()}
         for method in ("cuda", "qsv", "d3d11va", "d3d12va", "dxva2"):
             availability[f"decode_{method}"] = method in methods
 
-        _, filters = self.runner.run(
-            [ffmpeg_path(), "-hide_banner", "-filters"],
-            capture=True,
-        )
+        try:
+            _, filters = self.runner.run(
+                [ffmpeg_path(), "-hide_banner", "-filters"], capture=True, timeout=5
+            )
+        except ProcessTimeout:
+            filters = ""
+            if on_log:
+                on_log("硬件滤镜能力探测超时，已跳过")
         availability["filter_cuda"] = "scale_cuda" in filters
         availability["filter_qsv"] = "scale_qsv" in filters
         availability["filter_amf"] = "vpp_amf" in filters

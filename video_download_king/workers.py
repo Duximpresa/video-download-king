@@ -50,6 +50,32 @@ class AnalyzeWorker(QObject):
         self.service.cancel()
 
 
+class HardwareDetectionWorker(QObject):
+    log = Signal(str)
+    completed = Signal(object)
+    failed = Signal(str)
+    finished = Signal()
+
+    def __init__(self, service: FFmpegService | None = None) -> None:
+        super().__init__()
+        self.service = service or FFmpegService()
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            self.completed.emit(self.service.detect_encoders(self.log.emit))
+        except ProcessCancelled:
+            pass
+        except Exception as exc:
+            self.failed.emit(str(exc))
+        finally:
+            self.finished.emit()
+
+    @Slot()
+    def cancel(self) -> None:
+        self.service.runner.cancel()
+
+
 class DownloadWorker(QObject):
     log = Signal(str)
     progress = Signal(object)

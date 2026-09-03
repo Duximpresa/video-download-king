@@ -59,12 +59,13 @@ from .transcode import FFmpegService
 from .transcode_panel import TranscodePanel
 from .thumbnail_preview import configure_preview_proxy, thumbnail_request
 from .utils import human_size, render_filename_template
-from .workers import AnalyzeWorker, DownloadWorker
+from .workers import AnalyzeWorker, DownloadWorker, HardwareDetectionWorker
 from . import __version__
 
 
 class MainWindow(QMainWindow):
     cancel_requested = Signal()
+    hardware_detection_cancel_requested = Signal()
 
     def __init__(self) -> None:
         super().__init__()
@@ -75,6 +76,8 @@ class MainWindow(QMainWindow):
         self.subtitle_selections: list[SubtitleSelection] = []
         self.thread: QThread | None = None
         self.worker = None
+        self.hardware_thread: QThread | None = None
+        self.hardware_worker: HardwareDetectionWorker | None = None
         self._analysis_running = False
         self._last_output_dir: Path | None = None
         self.network = QNetworkAccessManager(self)
@@ -90,7 +93,6 @@ class MainWindow(QMainWindow):
         self._apply_settings()
         self._bind_shared_save_path()
         self._check_runtime()
-        self._detect_hardware()
 
     def _build_menu(self) -> None:
         menu = self.menuBar().addMenu("设置")
@@ -467,12 +469,28 @@ class MainWindow(QMainWindow):
             self._append_log(f"运行时尚未完整：缺少 {', '.join(missing)}")
             self.statusBar().showMessage("缺少运行时文件")
 
-    def _detect_hardware(self) -> None:
-        if not ffmpeg_path().exists():
+    def start_hardware_detection(self) -> None:
+        if not ffmpeg_path().exists() or self.hardware_thread:
             return
         self.statusBar().showMessage("正在检测硬件加速能力...")
-        QApplication.processEvents()
-        self.hardware_availability = FFmpegService().detect_encoders(self._append_log)
+        thread = QThread(self)
+        worker = HardwareDetectionWorker()
+        self.hardware_thread = thread
+        self.hardware_worker = worker
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        self.hardware_detection_cancel_requested.connect(worker.cancel, Qt.DirectConnection)
+        worker.log.connect(self._append_log)
+        worker.completed.connect(self._hardware_detection_complete)
+        worker.failed.connect(self._hardware_detection_failed)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(self._hardware_thread_finished)
+        thread.start()
+
+    def _hardware_detection_complete(self, availability: dict[str, bool]) -> None:
+        self.hardware_availability = availability
         self.transcode_panel.set_available_hardware(self.hardware_availability)
         if self.first_run and self.hardware_availability.get("nvidia"):
             self.video_encoder_combo.setCurrentIndex(self.video_encoder_combo.findData("nvidia"))
@@ -481,6 +499,14 @@ class MainWindow(QMainWindow):
         ):
             self.video_encoder_combo.setCurrentIndex(self.video_encoder_combo.findData("cpu"))
         self.statusBar().showMessage("就绪")
+
+    def _hardware_detection_failed(self, message: str) -> None:
+        self._append_log(f"硬件加速探测失败，已使用 CPU：{message}")
+        self.statusBar().showMessage("硬件探测失败，已使用 CPU")
+
+    def _hardware_thread_finished(self) -> None:
+        self.hardware_thread = None
+        self.hardware_worker = None
 
     def _open_settings(self) -> None:
         dialog = SettingsDialog(self.settings, self)
@@ -956,5 +982,9 @@ class MainWindow(QMainWindow):
             self.douyin_page.shutdown()
             self.xiaohongshu_page.shutdown()
             self.bilibili_page.shutdown()
+        if self.hardware_thread:
+            self.hardware_detection_cancel_requested.emit()
+            self.hardware_thread.quit()
+            self.hardware_thread.wait(3000)
         self._save_ui_settings()
         event.accept()

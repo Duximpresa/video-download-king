@@ -59,4 +59,5 @@ def run() -> int:
     window = MainWindow()
     window.setWindowIcon(app.windowIcon())
     window.show()
+    window.start_hardware_detection()
     return app.exec()

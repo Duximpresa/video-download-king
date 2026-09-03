@@ -1,4 +1,4 @@
-# Video Download King 0.8.5
+# Video Download King 0.8.6
 
 面向 Windows 11 的中文桌面视频下载器。支持 YouTube 单视频、Instagram 单个 Reel/视频帖子、TikTok 单视频、X 单条视频帖子、哔哩哔哩单稿件/多分P、抖音单视频/图集，以及小红书单篇视频/图文。YouTube、Instagram、TikTok 与 X 使用 `yt-dlp`，B站、抖音和小红书提供独立自研下载引擎。
 
@@ -88,14 +88,16 @@ Deno 是 yt-dlp 官方推荐的 YouTube JavaScript 挑战运行时，程序会�
 ## 构建便携版
 
 ```powershell
-.\build_release.ps1 -Version 0.8.5
+.\build_release.ps1 -Version 0.8.6
 ```
 
 脚本会先运行测试，再使用 PyInstaller 生成目录版程序，并创建：
 
 ```text
-release/VideoDownloadKing-v0.8.5-Windows-x64.zip
+release/VideoDownloadKing-v0.8.6-Windows-x64.zip
 ```
+
+便携版必须先完整解压 ZIP，再双击根目录的 `VideoDownloadKing.exe`；不要在压缩包预览窗口中直接运行单个 EXE。程序不依赖系统 Python、FFmpeg 或 PATH。若 Windows 11 明确显示 SmartScreen / Smart App Control 拦截，请先核对下载来源为本项目 GitHub Release，并用发布页提供的 SHA256 校验完整性；当前个人发布包尚未购买商业代码签名证书。
 
 ## 使用说明
 

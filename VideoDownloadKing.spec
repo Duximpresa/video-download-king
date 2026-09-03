@@ -69,6 +69,15 @@ a = Analysis(
     noarchive=False,
     optimize=0,
 )
+# The Codex/Poppler toolchain can put a renamed ICU build on PATH. Qt 6.11
+# imports the unversioned Windows system ICU ABI, while Poppler's DLL exports
+# only version-suffixed symbols (for example, ucnv_open_78). Bundling that DLL
+# makes Qt6Core fail before the main window is created. Windows 11 provides the
+# compatible system ICU, so these environment-owned DLLs must stay excluded.
+a.binaries = [
+    item for item in a.binaries
+    if item[0].lower() not in {'icuuc.dll', 'icudt78.dll'}
+]
 pyz = PYZ(a.pure)
 
 exe = EXE(
